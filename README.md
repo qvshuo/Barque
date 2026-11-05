@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/static/bell.png" alt="SubBark logo" width="120">
+  <img src="app/static/logo.png" alt="SubBark logo" width="120">
 </p>
 
 # SubBark
