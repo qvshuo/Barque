@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="logo.png" alt="SubBark logo" width="120">
+  <img src="logo.png" alt="Cirrus logo" width="120">
 </p>
 
-# SubBark
+# Cirrus
 
 订阅提醒工具，在到期前通过 Bark 自动向 iPhone 推送通知。
 
 ## 截图
 
-![SubBark 截图](./screenshot.png)
+![Cirrus 截图](./screenshot.png)
 
 ## 快速开始
 
 克隆项目：
 
 ```shell
-git clone https://github.com/qvshuo/SubBark.git --depth=1
-cd SubBark
+git clone https://github.com/qvshuo/Cirrus.git --depth=1
+cd Cirrus
 ```
 
 复制并编辑配置：

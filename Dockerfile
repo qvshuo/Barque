@@ -2,7 +2,7 @@ FROM python:alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    SUBBARK_DATA_DIR=/app/data
+    CIRRUS_DATA_DIR=/app/data
 
 WORKDIR /app
 

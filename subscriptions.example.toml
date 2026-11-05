@@ -1,5 +1,5 @@
 [app]
-title = "SubBark"
+title = "Cirrus"
 timezone = "Asia/Shanghai"
 # 后台检查间隔，单位秒。
 check_interval_seconds = 3600

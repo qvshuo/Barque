@@ -1,7 +1,7 @@
 services:
-  subbark:
+  cirrus:
     build: .
-    container_name: subbark
+    container_name: cirrus
     restart: unless-stopped
     ports:
       - "8080:8080"
