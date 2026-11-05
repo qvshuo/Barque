@@ -1,7 +1,7 @@
 services:
-  cirrus:
+  barque:
     build: .
-    container_name: cirrus
+    container_name: barque
     restart: unless-stopped
     ports:
       - "8080:8080"

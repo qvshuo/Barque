@@ -20,8 +20,8 @@ from app.services.subscription_service import build_dashboard, find_subscription
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get("CIRRUS_DATA_DIR", BASE_DIR / "data"))
-CONFIG_PATH = Path(os.environ.get("CIRRUS_CONFIG", DATA_DIR / "subscriptions.toml"))
+DATA_DIR = Path(os.environ.get("BARQUE_DATA_DIR", BASE_DIR / "data"))
+CONFIG_PATH = Path(os.environ.get("BARQUE_CONFIG", DATA_DIR / "subscriptions.toml"))
 WEB_PORT = 8080
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -104,7 +104,7 @@ def shutdown(*_args, exit_process: bool = False) -> None:
 def main() -> None:
     ensure_data_files()
     config = load_config(CONFIG_PATH)
-    logger.info("Cirrus starting with %s subscriptions", len(config.subscriptions))
+    logger.info("Barque starting with %s subscriptions", len(config.subscriptions))
     scheduler.sync_exchange_rates(config)
     scheduler.start()
     atexit.register(shutdown)

@@ -102,7 +102,7 @@ class ExchangeService:
             cache["failure_count"] = int(cache.get("failure_count") or 0) + 1
             cache["last_error"] = str(exc)
             if cache["failure_count"] >= 7 and cache.get("failure_notified_at") != today.isoformat():
-                send_bark_notification(self.notify_url, "Cirrus 汇率同步异常", "Frankfurter 汇率已连续 7 次同步失败，请检查网络或服务状态。")
+                send_bark_notification(self.notify_url, "Barque 汇率同步异常", "Frankfurter 汇率已连续 7 次同步失败，请检查网络或服务状态。")
                 cache["failure_notified_at"] = today.isoformat()
             write_json_atomic(self.cache_path, cache)
             logger.warning("Exchange rate sync failed: %s", exc)

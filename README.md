@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="logo.png" alt="Cirrus logo" width="120">
+  <img src="logo.png" alt="Barque logo" width="120">
 </p>
 
-# Cirrus
+# Barque
 
 订阅提醒工具，在到期前通过 Bark 自动向 iPhone 推送通知。
 
 ## 截图
 
-![Cirrus 截图](./screenshot.png)
+![Barque 截图](./screenshot.png)
 
 ## 快速开始
 
 克隆项目：
 
 ```shell
-git clone https://github.com/qvshuo/Cirrus.git --depth=1
-cd Cirrus
+git clone https://github.com/qvshuo/Barque.git --depth=1
+cd Barque
 ```
 
 复制并编辑配置：

@@ -39,7 +39,7 @@ class Scheduler:
     def start(self) -> None:
         if self.thread and self.thread.is_alive():
             return
-        self.thread = threading.Thread(target=self.run, name="cirrus-scheduler", daemon=True)
+        self.thread = threading.Thread(target=self.run, name="barque-scheduler", daemon=True)
         self.thread.start()
 
     def stop(self) -> None:
