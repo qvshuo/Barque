@@ -23,11 +23,3 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
         file.write("\n")
         temporary_name = file.name
     os.replace(temporary_name, path)
-
-
-def trim_notifications(path: Path, max_entries: int = 1000) -> None:
-    data = read_json(path, {"notifications": []})
-    notifications = data.get("notifications", [])
-    if isinstance(notifications, list) and len(notifications) > max_entries:
-        data["notifications"] = notifications[-max_entries:]
-        write_json_atomic(path, data)

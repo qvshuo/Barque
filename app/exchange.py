@@ -1,16 +1,16 @@
-"""Currency conversion and Bark notification helpers."""
+"""Exchange-rate synchronization, caching and currency conversion."""
 
 from __future__ import annotations
 
 import logging
 from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
 
-from app.services.log_store import read_json, write_json_atomic
+from app.bark import send_bark_notification
+from app.storage import read_json, write_json_atomic
 
 
 logger = logging.getLogger(__name__)
@@ -25,22 +25,6 @@ DEFAULT_CACHE = {
     "failure_notified_at": None,
     "last_error": None,
 }
-
-
-def now_iso(timezone_name: str) -> str:
-    return datetime.now(ZoneInfo(timezone_name)).isoformat(timespec="seconds")
-
-
-def send_bark_notification(notify_url: str, title: str, body: str) -> bool:
-    url = notify_url.rstrip("/") + f"/{quote(title)}/{quote(body)}"
-    try:
-        response = httpx.get(url, timeout=10)
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.warning("Bark notification failed: %s", exc)
-        return False
-    logger.info("Bark notification sent: %s", title)
-    return True
 
 
 class ExchangeService:
@@ -65,7 +49,7 @@ class ExchangeService:
         target_currencies = sorted(currency for currency in required_currencies if currency != "CNY")
         if not target_currencies:
             cache["date"] = today.isoformat()
-            cache["updated_at"] = now_iso(self.timezone)
+            cache["updated_at"] = datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds")
             cache["rates"] = {"CNY": 1.0}
             cache["failure_count"] = 0
             cache["failure_notified_at"] = None
@@ -90,7 +74,7 @@ class ExchangeService:
             cache = {
                 "base": "CNY",
                 "date": today.isoformat(),
-                "updated_at": now_iso(self.timezone),
+                "updated_at": datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds"),
                 "rates": rates,
                 "failure_count": 0,
                 "failure_notified_at": None,

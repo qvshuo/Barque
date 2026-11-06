@@ -8,11 +8,12 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app.services.config_loader import load_config
-from app.services.exchange_service import ExchangeService, send_bark_notification
-from app.services.log_store import read_json, trim_notifications, write_json_atomic
-from app.services.renewal_state import cleanup_renewal_state, is_cycle_renewed, load_renewal_state, save_renewal_state
-from app.services.subscription_service import build_dashboard, collect_active_cycle_keys, find_subscription_item
+from app.bark import send_bark_notification
+from app.config import load_config
+from app.exchange import ExchangeService
+from app.renewals import cleanup_renewal_state, is_cycle_renewed, load_renewal_state, save_renewal_state
+from app.storage import read_json, write_json_atomic
+from app.subscriptions import build_dashboard, collect_active_cycle_keys
 
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,7 @@ class Scheduler:
         exchange = ExchangeService(self.exchange_cache_path, config.app.timezone, config.app.notify_url)
         rates_cache = exchange.sync_once_per_day(today, self.configured_currencies(config))
         self.last_check_at = now_iso(config.app.timezone)
-        renewed_cycles = load_renewal_state(self.data_dir)
-        dashboard = build_dashboard(config, rates_cache, exchange.amount_to_cny, today, self.last_check_at, renewed_cycles)
-        self._cleanup_expired_renewal_state(dashboard)
+        dashboard = self._build_dashboard(config, exchange, rates_cache, today)
         self.send_due_notifications(config, dashboard)
         trim_notifications(self.notification_log_path)
         logger.info("Subscription check finished")
@@ -82,11 +81,13 @@ class Scheduler:
     def configured_currencies(self, config) -> set[str]:
         return {subscription.currency for subscription in config.subscriptions}
 
-    def get_dashboard(self) -> dict:
-        config = load_config(self.config_path)
+    def get_dashboard(self, config=None) -> dict:
+        config = config or load_config(self.config_path)
         today = today_in_timezone(config.app.timezone)
         exchange = ExchangeService(self.exchange_cache_path, config.app.timezone, config.app.notify_url)
-        rates_cache = exchange.load_rates()
+        return self._build_dashboard(config, exchange, exchange.load_rates(), today)
+
+    def _build_dashboard(self, config, exchange: ExchangeService, rates_cache: dict, today: date) -> dict:
         renewed_cycles = load_renewal_state(self.data_dir)
         dashboard = build_dashboard(config, rates_cache, exchange.amount_to_cny, today, self.last_check_at, renewed_cycles)
         self._cleanup_expired_renewal_state(dashboard)
@@ -138,3 +139,11 @@ class Scheduler:
 
         log_data["notifications"] = notifications
         write_json_atomic(self.notification_log_path, log_data)
+
+
+def trim_notifications(path: Path, max_entries: int = 1000) -> None:
+    data = read_json(path, {"notifications": []})
+    notifications = data.get("notifications", [])
+    if isinstance(notifications, list) and len(notifications) > max_entries:
+        data["notifications"] = notifications[-max_entries:]
+        write_json_atomic(path, data)

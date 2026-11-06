@@ -8,8 +8,8 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from app.services.config_loader import Config, SubscriptionConfig
-from app.services.renewal_state import build_button_state, build_toggle_response, is_cycle_renewed
+from app.config import Config, SubscriptionConfig
+from app.renewals import build_button_state, is_cycle_renewed
 
 
 # Approximate billing cycles per year for yearly-cost estimation.

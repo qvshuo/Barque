@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from app.services.log_store import read_json, write_json_atomic
+from app.storage import read_json, write_json_atomic
 
 
 MIN_BUTTON_WINDOW_DAYS = 7

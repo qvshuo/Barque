@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="Barque logo" width="120">
+  <img src="docs/assets/logo.png" alt="Barque logo" width="120">
 </p>
 
 # Barque
@@ -8,7 +8,7 @@
 
 ## 截图
 
-![Barque 截图](./screenshot.png)
+![Barque 截图](./docs/assets/screenshot.png)
 
 ## 快速开始
 
