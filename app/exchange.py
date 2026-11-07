@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from app.bark import send_bark_notification
-from app.storage import read_json, write_json_atomic
+from app.database import Database
+from app.currencies import DEFAULT_CURRENCIES, CURRENCIES_URL
 
 
 logger = logging.getLogger(__name__)
@@ -28,16 +28,32 @@ DEFAULT_CACHE = {
 
 
 class ExchangeService:
-    def __init__(self, cache_path: Path, timezone: str, notify_url: str) -> None:
-        self.cache_path = cache_path
+    def __init__(self, database: Database, timezone: str, notify_url: str) -> None:
+        self.database = database
         self.timezone = timezone
         self.notify_url = notify_url
 
     def load_rates(self) -> dict:
-        cache = read_json(self.cache_path, DEFAULT_CACHE)
+        cache = self.database.read_state("exchange_rates", DEFAULT_CACHE)
         cache.setdefault("rates", {"CNY": 1.0})
         cache["rates"].setdefault("CNY", 1.0)
         return cache
+
+    def sync_supported_currencies(self, today: date) -> dict[str, str]:
+        cache = self.database.read_state("currency_catalog", {"currencies": DEFAULT_CURRENCIES})
+        if cache.get("date") == today.isoformat():
+            return cache["currencies"]
+        try:
+            response = httpx.get(CURRENCIES_URL, timeout=15, follow_redirects=True)
+            response.raise_for_status()
+            currencies = response.json()
+            if not isinstance(currencies, dict) or "CNY" not in currencies or not all(isinstance(code, str) and len(code) == 3 and code.isascii() and code.isalpha() and code.isupper() and isinstance(name, str) for code, name in currencies.items()):
+                raise ValueError("Invalid currency catalog")
+            cache = {"date": today.isoformat(), "currencies": dict(sorted(currencies.items()))}
+            self.database.write_state("currency_catalog", cache)
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("Currency catalog sync failed: %s", exc)
+        return cache["currencies"]
 
     def sync_once_per_day(self, today: date, required_currencies: set[str] | None = None) -> dict:
         cache = self.load_rates()
@@ -54,7 +70,7 @@ class ExchangeService:
             cache["failure_count"] = 0
             cache["failure_notified_at"] = None
             cache["last_error"] = None
-            write_json_atomic(self.cache_path, cache)
+            self.database.write_state("exchange_rates", cache)
             return cache
 
         try:
@@ -80,15 +96,15 @@ class ExchangeService:
                 "failure_notified_at": None,
                 "last_error": None,
             }
-            write_json_atomic(self.cache_path, cache)
+            self.database.write_state("exchange_rates", cache)
             logger.info("Exchange rates synced for %s", today.isoformat())
         except Exception as exc:
             cache["failure_count"] = int(cache.get("failure_count") or 0) + 1
             cache["last_error"] = str(exc)
-            if cache["failure_count"] >= 7 and cache.get("failure_notified_at") != today.isoformat():
+            if self.notify_url and cache["failure_count"] >= 7 and cache.get("failure_notified_at") != today.isoformat():
                 send_bark_notification(self.notify_url, "Barque 汇率同步异常", "Frankfurter 汇率已连续 7 次同步失败，请检查网络或服务状态。")
                 cache["failure_notified_at"] = today.isoformat()
-            write_json_atomic(self.cache_path, cache)
+            self.database.write_state("exchange_rates", cache)
             logger.warning("Exchange rate sync failed: %s", exc)
         return cache
 

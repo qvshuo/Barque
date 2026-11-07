@@ -16,8 +16,8 @@ def send_bark_notification(notify_url: str, title: str, body: str) -> bool:
     try:
         response = httpx.get(url, timeout=10)
         response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.warning("Bark notification failed: %s", exc)
+    except httpx.HTTPError:
+        logger.warning("Bark notification failed")
         return False
     logger.info("Bark notification sent: %s", title)
     return True

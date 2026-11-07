@@ -33,27 +33,26 @@ def now_display(timezone_name: str) -> str:
     return f"{current.year}年{current.month}月{current.day}日{current.hour}点{current.minute:02d}分"
 
 
+def cycle_index(payment_date: date, billing_cycle: str, target: date) -> int:
+    if target <= payment_date:
+        return 0
+    if billing_cycle == "week":
+        return (target - payment_date).days // 7
+    months = (target.year - payment_date.year) * 12 + target.month - payment_date.month
+    return months // {"month": 1, "quarter": 3, "year": 12}[billing_cycle]
+
+
 def next_renewal_date(payment_date: date, billing_cycle: str, today: date) -> date:
-    cycle_count = 0
-    renewal_date = add_cycles(payment_date, billing_cycle, cycle_count)
-    while renewal_date < today:
-        cycle_count += 1
-        renewal_date = add_cycles(payment_date, billing_cycle, cycle_count)
-    return renewal_date
+    count = cycle_index(payment_date, billing_cycle, today)
+    renewal = add_cycles(payment_date, billing_cycle, count)
+    if renewal < today:
+        renewal = add_cycles(payment_date, billing_cycle, count + 1)
+    return renewal
 
 
 def current_period_start(payment_date: date, billing_cycle: str, renewal_date: date) -> date:
-    if renewal_date == payment_date:
-        return payment_date
-
-    cycle_count = 0
-    period_start = payment_date
-    while True:
-        next_period_start = add_cycles(payment_date, billing_cycle, cycle_count + 1)
-        if next_period_start >= renewal_date:
-            return period_start
-        cycle_count += 1
-        period_start = next_period_start
+    count = cycle_index(payment_date, billing_cycle, renewal_date)
+    return add_cycles(payment_date, billing_cycle, max(0, count - 1))
 
 
 def add_cycles(payment_date: date, billing_cycle: str, cycle_count: int) -> date:
@@ -63,6 +62,8 @@ def add_cycles(payment_date: date, billing_cycle: str, cycle_count: int) -> date
 
 
 def build_subscription_id(subscription: SubscriptionConfig) -> str:
+    if subscription.id:
+        return subscription.id
     source = "|".join(
         [
             subscription.name,
@@ -83,9 +84,9 @@ def build_dashboard(config: Config, rates_cache: dict, amount_to_cny, today: dat
     for subscription in config.subscriptions:
         item = build_subscription_item(subscription, config.app.remind_before_days, rates_cache, amount_to_cny, today, renewed_cycles)
         items.append(item)
-        if item["status"] == "expiring":
+        if item["status"] == "expiring" and item["button_state"]["status_kind"] != "renewed":
             expiring_count += 1
-        if item["renewal_date"][:7] == today.isoformat()[:7] and item["amount_cny"] is not None:
+        if item["renewal_date"][:7] == today.isoformat()[:7] and item["amount_cny"] is not None and item["button_state"]["status_kind"] != "renewed":
             monthly_due_cny += item["amount_cny"]
         if item["yearly_estimated_cny"] is not None:
             yearly_estimated_cny += item["yearly_estimated_cny"]
