@@ -55,7 +55,7 @@ export function SettingsPage() {
         <Skeleton className="h-80 w-full rounded-xl" />
       ) : (
         settings && (
-          <section className="grid gap-4 lg:grid-cols-3">
+          <section>
             <SettingsForm
               initial={settings}
               onSaved={(value) => {
@@ -148,7 +148,7 @@ function SettingsForm({
   return (
     <form
       onSubmit={(event) => void save(event)}
-      className="space-y-6 lg:col-span-2"
+      className="space-y-6"
     >
       {error && (
         <Alert variant="destructive">

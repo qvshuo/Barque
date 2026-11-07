@@ -241,7 +241,7 @@ export function SubscriptionsPage() {
                     {group.subscription_items.length} 个订阅，约 {money(group.yearly_estimated_cny)} / 年
                   </span>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2">
                   {group.subscription_items.map((item) => (
                     <Card key={item.subscription_id} className="gap-3">
                       <CardHeader className="grid-rows-1">
