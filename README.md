@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="Barque logo" width="120">
+  <img src="frontend/public/logo.png" alt="Barque logo" width="120">
 </p>
 
 # Barque
@@ -17,11 +17,11 @@ git clone https://github.com/qvshuo/Barque.git --depth=1
 cd Barque
 mkdir -p data
 cp docker-compose.example.yml docker-compose.yml
-# 编辑 docker-compose.yml，将 BARQUE_PASSWORD 改为自己的访问密码，密码长度为 6–256 个字符
+# 编辑 docker-compose.yml，按文件中的提示设置访问密码
 docker compose up -d --build
 ```
 
-打开 `http://localhost:8080`。
+打开 `http://localhost:8080`，使用设置的密码登录。
 
 
 ## 数据与升级

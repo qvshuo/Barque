@@ -4,7 +4,7 @@ services:
     container_name: barque
     restart: unless-stopped
     environment:
-      BARQUE_PASSWORD: "123456" # 修改为你的访问密码
+      BARQUE_PASSWORD: "123456" # 修改为你的访问密码（6–256 个字符）
     ports:
       - "8080:8080"
     volumes:
