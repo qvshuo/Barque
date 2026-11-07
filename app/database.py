@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -48,32 +47,7 @@ class Database:
             connection.execute("BEGIN IMMEDIATE")
             if connection.execute("SELECT 1 FROM settings WHERE id = 1").fetchone():
                 return
-            # A one-time upgrade only: TOML is never read after database initialization.
-            legacy = self.data_dir / "subscriptions.toml"
-            settings = AppConfig()
-            subscriptions = []
-            if legacy.exists():
-                import tomllib
-                raw = tomllib.loads(legacy.read_text(encoding="utf-8"))
-                settings = validate_settings({**asdict(settings), **raw.get("app", {})})
-                for item in raw.get("subscriptions", []):
-                    subscription = validate_subscription(item)
-                    source = "|".join([subscription.name, subscription.payment_date, subscription.billing_cycle])
-                    legacy_id = hashlib.sha256(source.encode()).hexdigest()[:16]
-                    subscriptions.append(validate_subscription(item, legacy_id))
-            connection.execute("INSERT INTO settings VALUES (1, ?)", (json.dumps(asdict(settings)),))
-            for subscription in subscriptions:
-                self._write_subscription(connection, subscription)
-            for filename, key in (("exchange_rates.json", "exchange_rates"), ("notification_log.json", "notification_log")):
-                path = self.data_dir / filename
-                if path.exists():
-                    self._write_state(connection, key, json.loads(path.read_text(encoding="utf-8")))
-            path = self.data_dir / "renewal_state.json"
-            if path.exists():
-                state = json.loads(path.read_text(encoding="utf-8"))
-                for key, renewed in state.get("renewed_cycles", state).items():
-                    if renewed:
-                        connection.execute("INSERT OR IGNORE INTO renewals VALUES (?)", (key,))
+            connection.execute("INSERT INTO settings VALUES (1, ?)", (json.dumps(asdict(AppConfig())),))
             connection.execute("PRAGMA user_version=1")
 
     def get_config(self) -> Config:

@@ -15,6 +15,7 @@
 ```shell
 git clone https://github.com/qvshuo/Barque.git --depth=1
 cd Barque
+mkdir -p data
 cp docker-compose.example.yml docker-compose.yml
 # 编辑 docker-compose.yml，将 BARQUE_PASSWORD 改为自己的访问密码，密码长度为 6–256 个字符
 docker compose up -d --build

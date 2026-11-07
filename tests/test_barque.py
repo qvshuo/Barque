@@ -12,7 +12,7 @@ from app.config import AppConfig, SubscriptionConfig
 from app.database import Database
 from app.renewals import build_button_state
 from app.scheduler import Scheduler
-from app.subscriptions import add_cycles, build_subscription_id, next_renewal_date
+from app.subscriptions import add_cycles, next_renewal_date
 from app.web import create_app
 
 HEADERS = {"X-Barque-Request": "1"}
@@ -345,32 +345,18 @@ class BarqueTests(unittest.TestCase):
         self.assertEqual(add_cycles(date(2026, 1, 31), "month", 2), date(2026, 3, 31))
         self.assertEqual(add_cycles(date(2026, 1, 31), "quarter", 1), date(2026, 4, 30))
 
-    def test_legacy_migration_runs_once_and_keeps_history(self):
+    def test_old_files_are_ignored_on_fresh_install(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
-            toml = '[app]\ntitle="Legacy"\ntimezone="Asia/Shanghai"\ncheck_interval_seconds=3600\nremind_before_days=3\nnotify_url=""\n[[subscriptions]]\nname="Legacy Sub"\ncategory="Test"\nbilling_cycle="month"\npayment_date="2026-01-01"\namount=10\ncurrency="USD"\n'
-            (path / "subscriptions.toml").write_text(toml)
-            legacy = SubscriptionConfig("Legacy Sub", "Test", "month", "2026-01-01", 10, "USD")
-            key = f"{build_subscription_id(legacy)}:2026-01-01:2026-11-01"
-            (path / "renewal_state.json").write_text(json.dumps({"renewed_cycles": {key: True}}))
-            (path / "notification_log.json").write_text(json.dumps({"notifications": [{"dedupe_key": key}]}))
-            (path / "exchange_rates.json").write_text(json.dumps({"rates": {"CNY": 1, "USD": 0.14}}))
+            (path / "subscriptions.toml").write_text("invalid TOML")
+            for filename in ("renewal_state.json", "notification_log.json", "exchange_rates.json"):
+                (path / filename).write_text("invalid JSON")
             database = Database(path)
-            self.assertEqual(database.get_config().app.remind_before_days, 3)
-            self.assertEqual(database.get_config().subscriptions[0].id, build_subscription_id(legacy))
-            self.assertTrue(database.load_renewals()[key])
-            self.assertEqual(database.read_state("notification_log", {})["notifications"][0]["dedupe_key"], key)
-            self.assertEqual(database.read_state("exchange_rates", {})["rates"]["USD"], 0.14)
-            (path / "subscriptions.toml").write_text("invalid TOML")
-            self.assertEqual(Database(path).get_config().app.remind_before_days, 3)
-
-    def test_failed_migration_rolls_back(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory)
-            (path / "subscriptions.toml").write_text("invalid TOML")
-            with self.assertRaises(ValueError):
-                Database(path)
-            (path / "subscriptions.toml").unlink()
+            self.assertEqual(database.get_config().app, AppConfig())
+            self.assertEqual(database.get_config().subscriptions, [])
+            self.assertEqual(database.load_renewals(), {})
+            self.assertEqual(database.read_state("notification_log", {}), {})
+            self.assertEqual(database.read_state("exchange_rates", {}), {})
             self.assertEqual(Database(path).get_config().app, AppConfig())
 
 
