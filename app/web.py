@@ -3,12 +3,12 @@
 from dataclasses import asdict
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from app.auth import Authentication, COOKIE_NAME, SESSION_SECONDS
 from app.bark import send_bark_notification
-from app.database import Database
+from app.database import Database, SubscriptionConflictError
 from app.renewals import build_toggle_response
 from app.scheduler import Scheduler
 from app.subscriptions import find_subscription_item
@@ -35,13 +35,17 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
     @app.before_request
     def require_password():
         # The shell and its assets only render the password form before login.
-        public = {"index", "legacy_admin", "assets", "icons", "auth_status", "login"}
+        public = {"index", "assets", "icons", "auth_status", "login"}
         if request.endpoint not in public and not auth.authenticated(request.cookies.get(COOKIE_NAME)):
             return jsonify(error="请先输入访问密码"), 401
 
     @app.errorhandler(ValueError)
     def invalid(error):
         return jsonify(error=str(error)), 400
+
+    @app.errorhandler(SubscriptionConflictError)
+    def subscription_conflict(error):
+        return jsonify(error=str(error)), 409
 
     @app.errorhandler(KeyError)
     def missing(_error):
@@ -113,8 +117,7 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
 
     @app.get("/api/configuration")
     def export_configuration():
-        config = database.get_config()
-        return jsonify(version=1, settings=asdict(config.app), subscriptions=[asdict(item) for item in config.subscriptions])
+        return jsonify(database.export_config())
 
     @app.put("/api/configuration")
     def import_configuration():
@@ -126,6 +129,17 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
     @app.get("/api/subscriptions")
     def subscriptions():
         return jsonify([asdict(subscription) for subscription in database.get_config().subscriptions])
+
+    @app.get("/api/subscription-groups")
+    def subscription_groups():
+        return jsonify(database.get_subscription_groups())
+
+    @app.put("/api/subscription-groups")
+    def update_subscription_groups():
+        request.max_content_length = 2 * 1024 * 1024
+        groups = database.save_subscription_groups(body())
+        scheduler.wake()
+        return jsonify(groups)
 
     @app.post("/api/subscriptions")
     def add_subscription():
@@ -183,13 +197,10 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
         return jsonify(status="ok")
 
     @app.get("/")
-    def index():
-        return send_from_directory(dist, "index.html", max_age=0)
-
     @app.get("/admin")
     @app.get("/admin/")
-    def legacy_admin():
-        return redirect("/")
+    def index():
+        return send_from_directory(dist, "index.html", max_age=0)
 
     @app.get("/assets/<path:filename>")
     def assets(filename):

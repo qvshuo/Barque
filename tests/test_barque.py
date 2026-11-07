@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -117,7 +117,7 @@ class BarqueTests(unittest.TestCase):
         self.assertEqual(reopened.get_config().subscriptions, [])
 
     def test_validation_is_atomic(self):
-        for invalid in ({"amount": -1}, {"amount": float('inf')}, {"amount": True}, {"billing_cycle": []}, {"payment_date": "2026-02-30"}, {"currency": "人民币"}, {"notify_enabled": "yes"}):
+        for invalid in ({"amount": -1}, {"amount": 10**400}, {"amount": float('inf')}, {"amount": True}, {"billing_cycle": []}, {"payment_date": "2026-02-30"}, {"currency": "人民币"}, {"notify_enabled": "yes"}):
             response = self.request("POST", "/api/subscriptions", {**self.payload, **invalid})
             self.assertEqual(response.status_code, 400, response.json)
         self.assertEqual(self.db.get_config().subscriptions, [])
@@ -180,6 +180,22 @@ class BarqueTests(unittest.TestCase):
         with patch("app.scheduler.send_bark_notification", return_value=True) as notify:
             self.scheduler.run_once()
             notify.assert_not_called()
+
+    def test_notification_history_cleanup_preserves_current_cycle_deduplication(self):
+        self.db.save_subscription(self.payload)
+        self.db.save_subscription({**self.payload, "name": "Second"})
+        config = self.db.get_config()
+        dashboard = self.scheduler.get_dashboard(config)
+        item = dashboard["category_groups"][0]["subscription_items"][0]
+        key = f"{item['subscription_id']}:{item['payment_date']}:{item['renewal_date']}"
+        self.db.write_state("notification_log", {"notifications": [
+            {"dedupe_key": key}, *({"dedupe_key": f"expired-{index}"} for index in range(1000)),
+        ]})
+        with patch("app.scheduler.send_bark_notification", return_value=True) as notify:
+            self.scheduler.send_due_notifications(config, dashboard)
+            self.scheduler.send_due_notifications(config, dashboard)
+            notify.assert_called_once()
+        self.assertEqual(len(self.db.read_state("notification_log", {})["notifications"]), 2)
 
     def test_reminder_preference_and_payment_mark_are_independent(self):
         subscription = self.add()
@@ -258,7 +274,6 @@ class BarqueTests(unittest.TestCase):
             self.assertEqual(visitor.get(path).status_code, 401, path)
         self.assertEqual(visitor.put("/api/settings", json=asdict(AppConfig()), headers=HEADERS).status_code, 401)
         self.assertEqual(visitor.get("/api/auth/session").json, {"authenticated": False})
-        self.assertEqual(visitor.get("/admin").location, "/")
         self.assertEqual(visitor.post("/api/auth/login", json={"password": "incorrect"}, headers=HEADERS).status_code, 401)
         response = visitor.post("/api/auth/login", json={"password": "123456"}, headers=HEADERS)
         self.assertEqual(response.status_code, 200)
@@ -267,6 +282,80 @@ class BarqueTests(unittest.TestCase):
         self.assertEqual(visitor.get("/api/dashboard").status_code, 200)
         self.assertTrue(self.db.read_state("access", {})["password_hash"].startswith("scrypt:"))
         self.assertEqual(visitor.post("/api/auth/setup", json={"password": "changed"}, headers=HEADERS).status_code, 404)
+
+    def test_home_and_admin_shells_share_full_site_authentication(self):
+        dist = self.data_dir / "frontend"
+        dist.mkdir()
+        shell = '<html><div id="root"></div></html>'
+        (dist / "index.html").write_text(shell)
+        app = create_app(self.db, self.scheduler, frontend_dist=dist, initial_password="123456")
+        with app.test_client() as visitor:
+            for path in ("/", "/admin", "/admin/"):
+                response = visitor.get(path)
+                self.addCleanup(response.close)
+                self.assertEqual(response.status_code, 200, path)
+                self.assertEqual(response.text, shell)
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
+                self.assertIsNone(response.location)
+            for path in ("/api/dashboard", "/api/settings", "/api/subscriptions", "/api/configuration", "/api/currencies"):
+                self.assertEqual(visitor.get(path).status_code, 401, path)
+            visitor.post("/api/auth/login", json={"password": "123456"}, headers=HEADERS)
+            self.assertEqual(visitor.get("/api/dashboard").status_code, 200)
+            self.assertEqual(visitor.get("/api/settings").status_code, 200)
+            visitor.post("/api/auth/logout", json={}, headers=HEADERS)
+            self.assertEqual(visitor.get("/api/dashboard").status_code, 401)
+            self.assertEqual(visitor.get("/api/settings").status_code, 401)
+
+    def test_management_batch_save_is_atomic_and_preserves_settings_and_renewals(self):
+        first = self.add()
+        second = self.db.save_subscription({**self.payload, "name": "Second"})
+        key = f"{first['id']}:{first['payment_date']}:{first['payment_date']}"
+        self.db.set_renewed(key, True)
+        snapshot = self.client.get("/api/subscription-groups").json
+        items = snapshot["categories"][0]["subscriptions"]
+        categories = [{"name": "重命名", "subscriptions": [items[1], {**items[0], "name": "Updated", "notify_enabled": False}]}]
+        categories.insert(0, {"name": "空分类", "subscriptions": []})
+        original_settings = self.db.get_config().app
+        invalid = [{**categories[1], "subscriptions": [{**items[0], "amount": -1}]}]
+        self.assertEqual(self.request("PUT", "/api/subscription-groups", {**snapshot, "categories": invalid}).status_code, 400)
+        self.assertEqual(self.client.get("/api/subscription-groups").json, snapshot)
+        response = self.request("PUT", "/api/subscription-groups", {**snapshot, "categories": categories})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([group["name"] for group in response.json["categories"]], ["空分类", "重命名"])
+        self.assertEqual([item.id for item in self.db.get_config().subscriptions], [second.id, first["id"]])
+        self.assertFalse(self.db.get_config().subscriptions[1].notify_enabled)
+        self.assertEqual(self.db.get_config().app, original_settings)
+        self.assertIn(key, self.db.load_renewals())
+        self.assertEqual(self.client.get("/api/subscription-groups").json, response.json)
+        self.assertEqual(self.scheduler.get_dashboard()["category_groups"][0]["category_name"], "重命名")
+
+    def test_management_rejects_stale_writes_and_duplicate_categories(self):
+        first = self.add()
+        snapshot = self.client.get("/api/subscription-groups").json
+        duplicate = [snapshot["categories"][0], {"name": " " + first["category"] + " ", "subscriptions": []}]
+        self.assertEqual(self.request("PUT", "/api/subscription-groups", {**snapshot, "categories": duplicate}).status_code, 400)
+        self.db.set_notify_enabled(first["id"], False)
+        self.assertEqual(self.request("PUT", "/api/subscription-groups", snapshot).status_code, 409)
+        self.assertFalse(self.db.get_config().subscriptions[0].notify_enabled)
+        self.assertEqual(self.app.test_client().get("/api/subscription-groups").status_code, 401)
+        self.assertEqual(self.app.test_client().put("/api/subscription-groups", json=snapshot, headers=HEADERS).status_code, 401)
+
+    def test_management_new_subscriptions_and_deletions_cleanup_only_changed_cycles(self):
+        first = self.add()
+        key = f"{first['id']}:{first['payment_date']}:{first['payment_date']}"
+        self.db.set_renewed(key, True)
+        snapshot = self.client.get("/api/subscription-groups").json
+        item = {**self.payload, "id": "a" * 32}
+        categories = [{"name": "新分类", "subscriptions": [item]}]
+        response = self.request("PUT", "/api/subscription-groups", {**snapshot, "categories": categories})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.db.get_config().subscriptions[0].id, "a" * 32)
+        self.assertNotIn(key, self.db.load_renewals())
+        new_key = f"{'a' * 32}:{item['payment_date']}:{item['payment_date']}"
+        self.db.set_renewed(new_key, True)
+        categories[0]["subscriptions"][0]["billing_cycle"] = "year"
+        self.assertEqual(self.request("PUT", "/api/subscription-groups", {**response.json, "categories": categories}).status_code, 200)
+        self.assertNotIn(new_key, self.db.load_renewals())
 
     def test_sessions_survive_restart_and_logout_revokes_token(self):
         cookie = self.client.get_cookie("barque_session")
@@ -333,6 +422,21 @@ class BarqueTests(unittest.TestCase):
         self.assertNotIn(key, self.db.load_renewals())
         self.assertEqual(self.request("PUT", "/api/configuration", {**exported, "settings": {}}).status_code, 400)
 
+    def test_configuration_roundtrip_preserves_empty_categories_and_order(self):
+        subscription = self.add()
+        snapshot = self.db.get_subscription_groups()
+        groups = [{"name": "Empty", "subscriptions": []}, *snapshot["categories"]]
+        self.db.save_subscription_groups({**snapshot, "categories": groups})
+        exported = self.client.get("/api/configuration").json
+        self.assertEqual(exported["categories"], ["Empty", subscription["category"]])
+        self.assertEqual(self.request("PUT", "/api/configuration", exported).status_code, 200)
+        self.assertEqual(self.db.get_subscription_groups()["categories"], groups)
+        for categories in (["Empty"], ["Empty", "Empty"], [None], "invalid"):
+            self.assertEqual(self.request("PUT", "/api/configuration", {**exported, "categories": categories}).status_code, 400)
+            self.assertEqual(self.db.get_subscription_groups()["categories"], groups)
+        exported.pop("categories")
+        self.assertEqual(self.request("PUT", "/api/configuration", exported).status_code, 200)
+
     def test_currency_catalog_and_default_window(self):
         self.assertEqual(AppConfig().remind_before_days, 7)
         currencies = self.client.get("/api/currencies").json
@@ -367,6 +471,31 @@ class BarqueTests(unittest.TestCase):
         self.assertEqual(current_period_start(date(1900, 1, 31), "month", date(2024, 2, 29)), date(2024, 1, 31))
         self.assertEqual(next_renewal_date(date(1900, 1, 1), "week", date(2026, 11, 7)), date(2026, 11, 9))
 
+    def test_stale_scheduler_cleanup_preserves_new_billing_marks(self):
+        subscription = self.db.save_subscription(self.payload)
+        snapshot = self.db.get_config()
+        changed = self.db.save_subscription({**self.payload, "payment_date": (date.today() + timedelta(days=1)).isoformat()}, subscription.id)
+        key = f"{changed.id}:{changed.payment_date}:{changed.payment_date}"
+        self.db.set_renewed(key, True)
+        with patch("app.exchange.ExchangeService.sync_once_per_day", return_value={"rates": {"CNY": 1}}):
+            self.scheduler.run_once(snapshot)
+        self.assertIn(key, self.db.load_renewals())
+        self.db.cleanup_renewals(set(), [changed])
+        self.assertNotIn(key, self.db.load_renewals())
+
+    def test_bark_url_validation_and_path_encoding(self):
+        from app.bark import send_bark_notification
+
+        original = self.db.get_config().app
+        for url in ("https://api.day.app:invalid/key", "https://api.day.app:99999/key", "https://bad host/key"):
+            with self.subTest(url=url):
+                response = self.request("PUT", "/api/settings", {**asdict(original), "notify_url": url})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(self.db.get_config().app, original)
+        with patch("app.bark.httpx.get") as get:
+            self.assertTrue(send_bark_notification("https://api.day.app/key", "A/B", "费用 / 月?x=1#test"))
+            self.assertEqual(get.call_args.args[0], "https://api.day.app/key/A%2FB/%E8%B4%B9%E7%94%A8%20%2F%20%E6%9C%88%3Fx%3D1%23test")
+
     def test_calendar_anchors(self):
         self.assertEqual(next_renewal_date(date(2024, 2, 29), "year", date(2026, 1, 1)), date(2026, 2, 28))
         self.assertEqual(add_cycles(date(2026, 1, 31), "month", 2), date(2026, 3, 31))
@@ -388,6 +517,45 @@ class BarqueTests(unittest.TestCase):
 
 
 class CurrencySyncTests(unittest.TestCase):
+    def test_rates_sync_once_per_day_and_retry_invalid_current_cache(self):
+        from app.exchange import ExchangeService
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Database(Path(directory))
+            exchange = ExchangeService(database, "Asia/Shanghai", "")
+            today = date(2026, 11, 7)
+            with patch("app.exchange.httpx.get") as get:
+                get.return_value.json.return_value = {"rates": {"USD": 0.14}}
+                cache = exchange.sync_once_per_day(today, {"USD"})
+                self.assertEqual(exchange.amount_to_cny(14, "USD", cache), 100)
+                self.assertEqual(exchange.sync_once_per_day(today, {"USD"}), cache)
+                get.assert_called_once()
+                database.write_state("exchange_rates", {**cache, "rates": {"USD": -1}})
+                self.assertEqual(exchange.sync_once_per_day(today, {"USD"})["rates"], {"USD": 0.14, "CNY": 1})
+                self.assertEqual(get.call_count, 2)
+
+    def test_invalid_rates_never_replace_last_good_cache_or_poison_totals(self):
+        from app.exchange import ExchangeService
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Database(Path(directory))
+            exchange = ExchangeService(database, "Asia/Shanghai", "")
+            good = {"date": "2026-11-06", "rates": {"CNY": 1, "USD": 0.14}, "failure_count": 0}
+            payloads = [[], {}, {"rates": {}}, *({"rates": {"USD": rate}} for rate in (0, -1, 10**400, True, "invalid", float("inf"), float("nan")))]
+            for payload in payloads:
+                with self.subTest(payload=payload):
+                    database.write_state("exchange_rates", good)
+                    with patch("app.exchange.httpx.get") as get:
+                        get.return_value.json.return_value = payload
+                        cache = exchange.sync_once_per_day(date(2026, 11, 7), {"USD"})
+                    self.assertEqual(cache["rates"], good["rates"])
+                    self.assertEqual(cache["date"], good["date"])
+                    self.assertEqual(cache["failure_count"], 1)
+                    self.assertEqual(exchange.amount_to_cny(14, "USD", cache), 100)
+            for rate in (0, -1, True, "invalid", float("inf"), float("nan"), 1e-308):
+                with self.subTest(rate=rate):
+                    self.assertIsNone(exchange.amount_to_cny(1e9, "USD", {"rates": {"USD": rate}}))
+
     def test_catalog_sync_caches_success_and_retains_last_catalog_on_failure(self):
         from app.exchange import ExchangeService
         import httpx

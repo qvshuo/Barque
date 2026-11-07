@@ -43,7 +43,7 @@ export function SettingsPage() {
       {error && (
         <Alert variant="destructive">
           <AlertTitle>无法加载设置</AlertTitle>
-          <AlertDescription className="flex items-center gap-4">
+          <AlertDescription className="flex flex-wrap items-center gap-4">
             {error}
             <Button variant="outline" size="sm" onClick={() => void load()}>
               重试
@@ -55,7 +55,7 @@ export function SettingsPage() {
         <Skeleton className="h-80 w-full rounded-xl" />
       ) : (
         settings && (
-          <section>
+          <section className="grid gap-4 lg:grid-cols-3">
             <SettingsForm
               initial={settings}
               onSaved={(value) => {
@@ -89,6 +89,7 @@ function SettingsForm({
     setDraft((previous) => ({ ...previous, ...value }));
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (busy || testing || !dirty) return;
     setBusy(true);
     setError("");
     try {
@@ -96,7 +97,6 @@ function SettingsForm({
       setDraft(saved);
       markSaved();
       onSaved(saved);
-      toast.success("设置已保存并生效");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -148,7 +148,7 @@ function SettingsForm({
   return (
     <form
       onSubmit={(event) => void save(event)}
-      className="max-w-2xl space-y-6"
+      className="space-y-6 lg:col-span-2"
     >
       {error && (
         <Alert variant="destructive">
@@ -168,7 +168,7 @@ function SettingsForm({
             >
               <Input
                 id="app-timezone"
-                placeholder="e.g. Asia/Shanghai"
+                placeholder="例如 Asia/Shanghai"
                 value={draft.timezone}
                 maxLength={100}
                 required
@@ -182,11 +182,7 @@ function SettingsForm({
             <CardTitle>续费提醒</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <Field
-              label="Bark 推送地址"
-              htmlFor="notify-url"
-
-            >
+            <Field label="Bark 推送地址" htmlFor="notify-url">
               <div className="flex gap-2">
                 <Input
                   id="notify-url"
@@ -194,7 +190,7 @@ function SettingsForm({
                   value={draft.notify_url}
                   maxLength={2048}
                   autoComplete="off"
-                  placeholder="e.g. https://api.day.app/your-key"
+                  placeholder="例如 https://api.day.app/your-key"
                   onChange={(event) => patch({ notify_url: event.target.value })}
                 />
                 <Button
@@ -215,7 +211,7 @@ function SettingsForm({
               <Field label="提前提醒天数" htmlFor="remind-days" required>
                 <Input
                   id="remind-days"
-                  placeholder="e.g. 7"
+                  placeholder="例如 7"
                   type="number"
                   min="0"
                   max="365"
@@ -234,7 +230,7 @@ function SettingsForm({
               >
                 <Input
                   id="check-interval"
-                  placeholder="e.g. 3600"
+                  placeholder="例如 3600"
                   type="number"
                   min="10"
                   max="86400"
@@ -275,7 +271,7 @@ function SettingsForm({
           </AlertDialogContent>
         </AlertDialog>
         <div className="flex items-center gap-4">
-          <Button type="submit" disabled={busy || testing}>
+          <Button type="submit" disabled={busy || testing || !dirty}>
             {busy ? "保存中…" : "保存设置"}
           </Button>
           {dirty && <p className="text-sm text-muted-foreground">尚未保存</p>}

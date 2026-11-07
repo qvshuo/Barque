@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/logo.png" alt="Barque logo" width="120">
+  <img src="frontend/public/logo.png?v=3" alt="Barque logo" width="120">
 </p>
 
 # Barque
@@ -21,8 +21,7 @@ cp docker-compose.example.yml docker-compose.yml
 docker compose up -d --build
 ```
 
-打开 `http://localhost:8080`，使用设置的密码登录。
-
+打开 `http://localhost:8080`，使用设置的密码登录。首页用于查看订阅和标记续费；「管理订阅」`#subscriptions` 按分类内联编辑订阅，支持添加、删除、排序和提醒开关，统一保存后生效；「设置」`#settings` 管理应用设置与备份。全站使用同一访问密码保护。
 
 ## 数据与升级
 

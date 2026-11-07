@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -10,6 +11,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.config import AppConfig, Config, SubscriptionConfig, validate_settings, validate_subscription
+
+
+class SubscriptionConflictError(ValueError):
+    pass
 
 
 class Database:
@@ -126,6 +131,77 @@ class Database:
             connection.execute("UPDATE settings SET value = ? WHERE id = 1", (json.dumps(asdict(settings)),))
         return settings
 
+    def _subscription_groups(self, connection) -> dict:
+        rows = connection.execute("SELECT * FROM subscriptions ORDER BY rowid").fetchall()
+        items = [SubscriptionConfig(**{**dict(row), "notify_enabled": bool(row["notify_enabled"])}) for row in rows]
+        row = connection.execute("SELECT value FROM state WHERE key = 'display_order'").fetchone()
+        order = json.loads(row[0]) if row else {}
+        groups = {name: [] for name in order.get("categories", [])}
+        for item in self._ordered(items, order):
+            groups.setdefault(item.category, []).append(asdict(item))
+        categories = [{"name": name, "subscriptions": subscriptions} for name, subscriptions in groups.items()]
+        revision = hashlib.sha256(json.dumps(categories, sort_keys=True).encode()).hexdigest()
+        return {"categories": categories, "revision": revision}
+
+    def get_subscription_groups(self) -> dict:
+        with self.connect() as connection:
+            connection.execute("BEGIN")
+            return self._subscription_groups(connection)
+
+    def save_subscription_groups(self, data: dict) -> dict:
+        if not isinstance(data.get("categories"), list) or not isinstance(data.get("revision"), str):
+            raise ValueError("缺少有效的订阅分类或版本")
+        currencies = self.supported_currencies()
+        categories, subscriptions, ids = [], [], set()
+        for group in data["categories"]:
+            if not isinstance(group, dict) or not isinstance(group.get("subscriptions"), list):
+                raise ValueError("订阅分类格式无效")
+            name = group.get("name")
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100 or name.strip() in categories:
+                raise ValueError("分类名称不能为空、重复或超过 100 个字符")
+            categories.append(name.strip())
+            for item in group["subscriptions"]:
+                if not isinstance(item, dict):
+                    raise ValueError("订阅数据格式无效")
+                subscription_id = item.get("id")
+                if not isinstance(subscription_id, str) or len(subscription_id) not in (16, 32) or any(char not in "0123456789abcdef" for char in subscription_id) or subscription_id in ids:
+                    raise ValueError("订阅 ID 无效或重复")
+                subscription = validate_subscription({**item, "category": name.strip()}, subscription_id)
+                if subscription.currency not in currencies:
+                    raise ValueError("请选择汇率源支持的币种")
+                ids.add(subscription_id)
+                subscriptions.append(subscription)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if self._subscription_groups(connection)["revision"] != data["revision"]:
+                raise SubscriptionConflictError("订阅已在其他页面更新，请重新加载后再编辑")
+            self._replace_subscriptions(connection, subscriptions)
+            self._write_state(connection, "display_order", {"categories": categories, "subscriptions": [item.id for item in subscriptions]})
+            return self._subscription_groups(connection)
+
+    def _replace_subscriptions(self, connection, subscriptions: list[SubscriptionConfig]):
+        old = {row["id"]: (row["payment_date"], row["billing_cycle"]) for row in connection.execute("SELECT id, payment_date, billing_cycle FROM subscriptions")}
+        for subscription in subscriptions:
+            if old.get(subscription.id) == (subscription.payment_date, subscription.billing_cycle):
+                old.pop(subscription.id)
+        for subscription_id in old:
+            connection.execute("DELETE FROM renewals WHERE cycle_key LIKE ?", (subscription_id + ":%",))
+        connection.execute("DELETE FROM subscriptions")
+        for subscription in subscriptions:
+            self._write_subscription(connection, subscription)
+
+    def export_config(self) -> dict:
+        with self.connect() as connection:
+            connection.execute("BEGIN")
+            settings = json.loads(connection.execute("SELECT value FROM settings WHERE id = 1").fetchone()[0])
+            settings.pop("title", None)
+            groups = self._subscription_groups(connection)["categories"]
+            return {
+                "version": 1, "settings": settings,
+                "categories": [group["name"] for group in groups],
+                "subscriptions": [item for group in groups for item in group["subscriptions"]],
+            }
+
     def import_config(self, data: dict) -> Config:
         if type(data.get("version")) is not int or data["version"] != 1 or not isinstance(data.get("settings"), dict) or not isinstance(data.get("subscriptions"), list):
             raise ValueError("配置文件格式或版本无效")
@@ -148,18 +224,15 @@ class Database:
                 raise ValueError("配置包含汇率源不支持的币种")
             seen.add(subscription_id)
             subscriptions.append(subscription)
+        categories = data.get("categories", list(dict.fromkeys(item.category for item in subscriptions)))
+        if not isinstance(categories, list) or any(not isinstance(name, str) or not name.strip() or name != name.strip() or len(name) > 100 for name in categories):
+            raise ValueError("配置中的分类格式无效")
+        if len(set(categories)) != len(categories) or not {item.category for item in subscriptions} <= set(categories):
+            raise ValueError("配置中的分类重复或缺失")
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            old = {row["id"]: (row["payment_date"], row["billing_cycle"]) for row in connection.execute("SELECT id, payment_date, billing_cycle FROM subscriptions")}
-            for subscription in subscriptions:
-                if old.get(subscription.id) == (subscription.payment_date, subscription.billing_cycle):
-                    old.pop(subscription.id)
-            for subscription_id in old:
-                connection.execute("DELETE FROM renewals WHERE cycle_key LIKE ?", (subscription_id + ":%",))
-            connection.execute("DELETE FROM state WHERE key = 'display_order'")
-            connection.execute("DELETE FROM subscriptions")
-            for subscription in subscriptions:
-                self._write_subscription(connection, subscription)
+            self._replace_subscriptions(connection, subscriptions)
+            self._write_state(connection, "display_order", {"categories": categories, "subscriptions": [item.id for item in subscriptions]})
             connection.execute("UPDATE settings SET value = ? WHERE id = 1", (json.dumps(asdict(settings)),))
         return Config(settings, subscriptions)
 
@@ -232,7 +305,17 @@ class Database:
             else:
                 connection.execute("DELETE FROM renewals WHERE cycle_key = ?", (cycle_key,))
 
-    def cleanup_renewals(self, active_keys: set[str]):
+    def cleanup_renewals(self, active_keys: set[str], subscriptions: list[SubscriptionConfig]):
+        anchors = {item.id: (item.payment_date, item.billing_cycle) for item in subscriptions}
         with self.connect() as connection:
-            expired = [(row[0],) for row in connection.execute("SELECT cycle_key FROM renewals") if row[0] not in active_keys]
+            connection.execute("BEGIN IMMEDIATE")
+            unchanged = {
+                row["id"] for row in connection.execute("SELECT id, payment_date, billing_cycle FROM subscriptions")
+                if anchors.get(row["id"]) == (row["payment_date"], row["billing_cycle"])
+            }
+            # A slow exchange sync must not erase marks created after a billing edit.
+            expired = [
+                (row[0],) for row in connection.execute("SELECT cycle_key FROM renewals")
+                if row[0] not in active_keys and row[0].split(":", 1)[0] in unchanged
+            ]
             connection.executemany("DELETE FROM renewals WHERE cycle_key = ?", expired)

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime
+from sys import float_info
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -25,6 +27,10 @@ DEFAULT_CACHE = {
     "failure_notified_at": None,
     "last_error": None,
 }
+
+
+def valid_rate(value) -> bool:
+    return type(value) in (int, float) and 0 < value <= float_info.max
 
 
 class ExchangeService:
@@ -82,10 +88,10 @@ class ExchangeService:
             )
             response.raise_for_status()
             payload = response.json()
-            rates = payload.get("rates")
-            if not isinstance(rates, dict):
-                raise ValueError("Frankfurter response missing rates")
-            rates = {key.upper(): float(value) for key, value in rates.items()}
+            rates = payload.get("rates") if isinstance(payload, dict) else None
+            if not isinstance(rates, dict) or not all(valid_rate(rates.get(currency)) for currency in target_currencies):
+                raise ValueError("Frankfurter response contains missing or invalid rates")
+            rates = {currency: float(rates[currency]) for currency in target_currencies}
             rates["CNY"] = 1.0
             cache = {
                 "base": "CNY",
@@ -98,7 +104,7 @@ class ExchangeService:
             }
             self.database.write_state("exchange_rates", cache)
             logger.info("Exchange rates synced for %s", today.isoformat())
-        except Exception as exc:
+        except (httpx.HTTPError, ValueError) as exc:
             cache["failure_count"] = int(cache.get("failure_count") or 0) + 1
             cache["last_error"] = str(exc)
             if self.notify_url and cache["failure_count"] >= 7 and cache.get("failure_notified_at") != today.isoformat():
@@ -110,7 +116,7 @@ class ExchangeService:
 
     def _has_required_rates(self, cache: dict, required_currencies: set[str]) -> bool:
         rates = cache.get("rates", {})
-        return all(currency == "CNY" or rates.get(currency) for currency in required_currencies)
+        return all(currency == "CNY" or valid_rate(rates.get(currency)) for currency in required_currencies)
 
     def amount_to_cny(self, amount: float, currency: str, rates_cache: dict | None = None) -> float | None:
         currency = currency.upper()
@@ -118,7 +124,8 @@ class ExchangeService:
             return round(amount, 2)
         cache = rates_cache or self.load_rates()
         rate = cache.get("rates", {}).get(currency)
-        if not rate:
-            logger.warning("Missing exchange rate for %s", currency)
+        if not valid_rate(rate):
+            logger.warning("Missing or invalid exchange rate for %s", currency)
             return None
-        return round(amount / float(rate), 2)
+        converted = amount / rate
+        return round(converted, 2) if math.isfinite(converted) else None

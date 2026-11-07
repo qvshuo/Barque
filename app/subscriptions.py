@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import date, timedelta
 
 from dateutil.relativedelta import relativedelta
 
@@ -26,11 +25,6 @@ CYCLE_RELATIVEDELTA_ARGS = {
     "month": "months",
     "year": "years",
 }
-
-
-def now_display(timezone_name: str) -> str:
-    current = datetime.now(ZoneInfo(timezone_name))
-    return f"{current.year}年{current.month}月{current.day}日{current.hour}点{current.minute:02d}分"
 
 
 def cycle_index(payment_date: date, billing_cycle: str, target: date) -> int:
@@ -100,7 +94,6 @@ def build_dashboard(config: Config, rates_cache: dict, amount_to_cny, today: dat
         "monthly_due_cny": round(monthly_due_cny, 2),
         "yearly_estimated_cny": round(yearly_estimated_cny, 2),
         "last_check_at": last_check_at,
-        "last_check_display": now_display(config.app.timezone),
         "exchange_rate_updated_at": rates_cache.get("updated_at"),
     }
     return {"summary": summary, "category_groups": category_groups}

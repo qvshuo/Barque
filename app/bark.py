@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def send_bark_notification(notify_url: str, title: str, body: str) -> bool:
-    url = notify_url.rstrip("/") + f"/{quote(title)}/{quote(body)}"
+    url = notify_url.rstrip("/") + f"/{quote(title, safe='')}/{quote(body, safe='')}"
     try:
         response = httpx.get(url, timeout=10)
         response.raise_for_status()

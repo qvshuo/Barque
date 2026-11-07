@@ -1,44 +1,68 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+import type { SubscriptionGroups } from "../src/api";
 
 const headers = { "X-Barque-Request": "1" };
 const password = process.env.BARQUE_TEST_PASSWORD;
-if (!password)
-  throw new Error("Set BARQUE_TEST_PASSWORD for the isolated test instance");
+if (!password) throw new Error("Set BARQUE_TEST_PASSWORD for the isolated test instance");
+let prefix = "";
 
-test.beforeEach(async ({ page, request }) => {
-  const response = await request.post("/api/auth/login", {
-    headers,
-    data: { password },
+async function snapshot(request: APIRequestContext): Promise<SubscriptionGroups> {
+  const response = await request.get("/api/subscription-groups");
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+async function seed(request: APIRequestContext) {
+  const current = await snapshot(request);
+  const create = (name: string) => ({
+    id: crypto.randomUUID().replaceAll("-", ""), name, category: `${prefix} A`,
+    billing_cycle: "month", payment_date: new Date().toLocaleDateString("en-CA"),
+    amount: 21, currency: "CNY", notify_enabled: true,
+  });
+  const items = [create(`${prefix} One`), create(`${prefix} Two`)];
+  const response = await request.put("/api/subscription-groups", {
+    headers, data: { ...current, categories: [...current.categories,
+      { name: `${prefix} A`, subscriptions: items }, { name: `${prefix} B`, subscriptions: [] }],
+    },
   });
   expect(response.ok()).toBeTruthy();
+  return items;
+}
+
+test.beforeEach(async ({ page, request }) => {
+  prefix = `E2E ${Date.now()}`;
+  const response = await request.post("/api/auth/login", { headers, data: { password } });
+  expect(response.ok()).toBeTruthy();
   await page.context().addCookies((await request.storageState()).cookies);
+});
+
+test.afterEach(async ({ request }) => {
+  expect((await request.post("/api/auth/login", { headers, data: { password } })).ok()).toBeTruthy();
+  const current = await snapshot(request);
+  if (!current.categories.some(group => group.name.startsWith(prefix))) return;
+  const response = await request.put("/api/subscription-groups", {
+    headers, data: { ...current, categories: current.categories.filter(group => !group.name.startsWith(prefix)) },
+  });
+  expect(response.ok()).toBeTruthy();
 });
 
 test("session verification never flashes the login form", async ({ page }) => {
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  await page.route("**/api/auth/session", async route => {
-    await gate;
-    await route.continue();
-  });
+  await page.route("**/api/auth/session", async route => { await gate; await route.continue(); });
   try {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("main")).toBeEmpty();
-    await expect(page.getByLabel("密码")).toHaveCount(0);
-  } finally {
-    release();
-  }
+    await expect(page.getByLabel("密码", { exact: true })).toHaveCount(0);
+  } finally { release(); }
   await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
-  await expect(page.getByLabel("密码")).toHaveCount(0);
 });
 
 test("session verification can be retried after a failure", async ({ page }) => {
   let first = true;
   await page.route("**/api/auth/session", async route => {
-    if (first) {
-      first = false;
-      await route.fulfill({ status: 503, json: { error: "暂时无法连接" } });
-    } else await route.continue();
+    if (first) { first = false; await route.fulfill({ status: 503, json: { error: "暂时无法连接" } }); }
+    else await route.continue();
   });
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("暂时无法连接");
@@ -46,447 +70,238 @@ test("session verification can be retried after a failure", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
 });
 
-test("cycle markings and edits persist after reload", async ({
-  page,
-  request,
-}) => {
-  const name = `E2E iCloud ${Date.now()}`;
-  const renamed = `${name} Family`;
-  const response = await request.post("/api/subscriptions", {
-    headers,
-    data: {
-      name,
-      category: "测试",
-      billing_cycle: "month",
-      payment_date: new Date().toLocaleDateString("en-CA"),
-      amount: 35.88,
-      currency: "USD",
-      notify_enabled: true,
-    },
+test("all tabs share site authentication and logout revokes access", async ({ page }) => {
+  await page.context().clearCookies();
+  for (const path of ["/", "/#subscriptions", "/#settings"]) {
+    await page.goto(path);
+    await expect(page.getByLabel("密码", { exact: true })).toBeVisible();
+    await expect(page.getByRole("navigation")).toHaveCount(0);
+    for (const api of ["dashboard", "settings", "subscription-groups"]) expect((await page.request.get(`/api/${api}`)).status()).toBe(401);
+  }
+  await page.getByLabel("密码", { exact: true }).fill(password!);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "设置", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "管理订阅", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "管理订阅" })).toBeVisible();
+  await page.getByRole("link", { name: "首页", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await expect(page.getByLabel("密码", { exact: true })).toBeVisible();
+  expect((await page.request.get("/api/subscription-groups")).status()).toBe(401);
+});
+
+test("management is an editor without dashboard metrics or renewal actions", async ({ page, request }) => {
+  await seed(request);
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "主导航" });
+  await expect(nav.getByRole("link")).toHaveText(["首页", "管理订阅", "设置"]);
+  await expect(nav.getByRole("link", { name: "管理订阅" })).toHaveAttribute("href", "#subscriptions");
+  await expect(page.getByText("预计年支出", { exact: true })).toBeVisible();
+  await nav.getByRole("link", { name: "管理订阅" }).click();
+  await expect(page.getByRole("heading", { name: "管理订阅" })).toBeVisible();
+  for (const label of ["订阅总数", "即将到期", "本月待付", "预计年支出", "搜索订阅"]) await expect(page.getByText(label, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("progressbar")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /标记为已续费/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  await page.reload();
+  await expect(nav.getByRole("link", { name: "管理订阅" })).toHaveAttribute("aria-current", "page");
+  await nav.getByRole("link", { name: "设置", exact: true }).click();
+  await expect(page.getByLabel(/^时区/)).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "管理订阅" })).toBeVisible();
+});
+
+test("inline editing ordering and deletions apply together only after saving", async ({ page, request }) => {
+  const items = await seed(request);
+  await page.goto("/#subscriptions");
+  const group = page.getByRole("region", { name: `${prefix} A`, exact: true });
+  await group.getByRole("button", { name: `${prefix} Two 上移`, exact: true }).click();
+  const second = group.getByRole("group", { name: `${prefix} Two`, exact: true });
+  await second.getByLabel(/^订阅名称/).fill(`${prefix} Renamed`);
+  await page.getByRole("group", { name: `${prefix} Renamed`, exact: true }).getByLabel(/^每期费用/).fill("35.88");
+  await group.getByLabel(/^分类/).fill(`${prefix} Renamed category`);
+  await page.getByRole("button", { name: `${prefix} B 分类 上移`, exact: true }).click();
+  let current = await snapshot(request);
+  expect(current.categories.find(group => group.name === `${prefix} A`)!.subscriptions.map(item => item.name)).toEqual(items.map(item => item.name));
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  current = await snapshot(request);
+  const updated = current.categories.find(group => group.name === `${prefix} Renamed category`)!;
+  expect(updated.subscriptions.map(item => item.name)).toEqual([`${prefix} Renamed`, `${prefix} One`]);
+  expect(updated.subscriptions[0].amount).toBe(35.88);
+  expect(current.categories.findIndex(group => group.name === `${prefix} B`)).toBeLessThan(current.categories.indexOf(updated));
+  await page.reload();
+  await page.getByRole("button", { name: `${prefix} One 删除`, exact: true }).click();
+  expect((await snapshot(request)).categories.find(group => group.name === updated.name)!.subscriptions).toHaveLength(2);
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  expect((await snapshot(request)).categories.find(group => group.name === updated.name)!.subscriptions).toHaveLength(1);
+  await page.getByRole("link", { name: "首页", exact: true }).click();
+  await page.getByLabel("搜索订阅").fill(`${prefix} Renamed`);
+  await expect(page.getByText(`${prefix} Renamed`, { exact: true })).toBeVisible();
+});
+
+test("new categories and subscriptions use inline shadcn date and currency selectors", async ({ page, request }) => {
+  await page.goto("/#subscriptions");
+  await page.getByRole("button", { name: "添加分类", exact: true }).click();
+  await page.getByRole("region", { name: "新分类", exact: true }).getByLabel(/^分类/).fill(`${prefix} New`);
+  const group = page.getByRole("region", { name: `${prefix} New`, exact: true });
+  await group.getByRole("button", { name: "添加订阅", exact: true }).click();
+  await group.getByLabel(/^订阅名称/).fill(`${prefix} Added`);
+  await group.getByLabel(/^付款日期/).click();
+  const calendar = page.locator('[data-slot="calendar"]');
+  await expect(calendar).toBeVisible();
+  await calendar.locator('select').filter({ has: page.locator('option[value="2000"]') }).selectOption("2000");
+  await calendar.locator('select').filter({ has: page.locator('option[value="1"]') }).selectOption("1");
+  await calendar.getByRole("button", { name: /29/ }).click();
+  await expect(group.getByLabel(/^付款日期/)).toHaveText("2000-02-29");
+  await group.getByLabel(/^币种/).click();
+  await page.getByRole("option", { name: /^USD/ }).click();
+  await group.getByRole("switch", { name: "续费提醒" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  const added = (await snapshot(request)).categories.find(group => group.name === `${prefix} New`)!.subscriptions[0];
+  expect(added).toMatchObject({ name: `${prefix} Added`, payment_date: "2000-02-29", currency: "USD", notify_enabled: false });
+  await page.reload();
+  await expect(page.getByRole("region", { name: `${prefix} New`, exact: true }).getByRole("switch")).not.toBeChecked();
+});
+
+test("unsaved management changes guard tab switches and can be discarded", async ({ page, request }) => {
+  await seed(request);
+  await page.goto("/#subscriptions");
+  const item = page.getByRole("group", { name: `${prefix} One`, exact: true });
+  await item.getByLabel(/^订阅名称/).fill(`${prefix} Draft`);
+  await page.getByRole("link", { name: "首页", exact: true }).click();
+  await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+  await expect(page.getByRole("group", { name: `${prefix} Draft`, exact: true })).toBeVisible();
+  expect(await page.evaluate(() => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBeTruthy();
+  await page.getByRole("link", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(page.getByLabel(/^时区/)).toBeVisible();
+  await page.getByRole("link", { name: "管理订阅", exact: true }).click();
+  await expect(page.getByRole("group", { name: `${prefix} One`, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+});
+
+test("failed batch save retains drafts and can be retried", async ({ page, request }) => {
+  await seed(request);
+  await page.goto("/#subscriptions");
+  await page.getByRole("group", { name: `${prefix} One`, exact: true }).getByLabel(/^每期费用/).fill("42");
+  let failed = false;
+  await page.route("**/api/subscription-groups", async route => {
+    if (route.request().method() === "PUT" && !failed) { failed = true; await route.fulfill({ status: 500, json: { error: "保存失败，请重试" } }); }
+    else await route.continue();
   });
-  expect(response.ok()).toBeTruthy();
-  const subscription = await response.json();
-  try {
-    await page.goto("/");
-    await page.getByRole("textbox", { name: "搜索订阅" }).fill(name);
-    const renewal = page.getByRole("button", {name: `${name}：标记为已续费`, exact: true});
-    const footer = page.locator('[data-slot="card-footer"]').filter({has: renewal});
-    const conversion = footer.locator(":scope > span");
-    const textStyle = (element: HTMLElement) => { const style = getComputedStyle(element); return [style.fontSize, style.fontWeight, style.color]; };
-    expect(await renewal.evaluate(textStyle)).toEqual(await conversion.evaluate(textStyle));
-    const conversionBox = await conversion.boundingBox();
-    const buttonBox = await renewal.boundingBox();
-    expect(buttonBox!.x).toBeGreaterThan(conversionBox!.x + conversionBox!.width);
-    expect(Math.abs((buttonBox!.y + buttonBox!.height / 2) - (conversionBox!.y + conversionBox!.height / 2))).toBeLessThan(2);
-    await page.getByRole("button", { name: new RegExp(`^${name}：(?:标记为已续费|本期已续费)`)}).click();
-    await expect(
-      page.locator('[role="progressbar"][aria-valuetext*="本期已续费"]'),
-    ).toBeVisible();
-    await expect(page.getByRole("button", {name: `${name}：本期已续费，点击撤销`, exact: true})).toHaveAttribute("aria-pressed", "true");
-    await page.reload();
-    await page.getByRole("textbox", { name: "搜索订阅" }).fill(name);
-    await expect(
-      page.locator('[role="progressbar"][aria-valuetext*="本期已续费"]'),
-    ).toBeVisible();
-    await page.getByRole("button", { name: `${name} 操作` }).click();
-    await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
-    await page.getByLabel("订阅名称").fill(renamed);
-    await page.getByRole("button", { name: "保存订阅" }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await page.reload();
-    await page.getByRole("textbox", { name: "搜索订阅" }).fill(renamed);
-    await expect(page.getByText(renamed, { exact: true })).toBeVisible();
-    await expect(
-      page.locator('[role="progressbar"][aria-valuetext*="本期已续费"]'),
-    ).toBeVisible();
-  } finally {
-    expect(
-      (
-        await request.delete(`/api/subscriptions/${subscription.id}`, {
-          headers,
-          data: {},
-        })
-      ).ok(),
-    ).toBeTruthy();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("保存失败");
+  await expect(page.getByRole("group", { name: `${prefix} One`, exact: true }).getByLabel(/^每期费用/)).toHaveValue("42");
+  expect((await snapshot(request)).categories.find(group => group.name === `${prefix} A`)!.subscriptions[0].amount).toBe(21);
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  expect((await snapshot(request)).categories.find(group => group.name === `${prefix} A`)!.subscriptions[0].amount).toBe(42);
+});
+
+test("concurrent changes are preserved and stale drafts require reloading", async ({ page, request }) => {
+  const items = await seed(request);
+  await page.goto("/#subscriptions");
+  await page.getByRole("group", { name: `${prefix} One`, exact: true }).getByLabel(/^每期费用/).fill("42");
+  expect((await request.put(`/api/subscriptions/${items[0].id}/notifications`, { headers, data: { enabled: false } })).ok()).toBeTruthy();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("其他页面更新");
+  await page.getByRole("button", { name: "重新加载", exact: true }).click();
+  await page.getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(page.getByRole("group", { name: `${prefix} One`, exact: true }).getByRole("switch")).not.toBeChecked();
+  await expect(page.getByRole("group", { name: `${prefix} One`, exact: true }).getByLabel(/^每期费用/)).toHaveValue("21");
+});
+
+test("failed reload preserves the draft and its navigation guard", async ({ page, request }) => {
+  await seed(request);
+  await page.goto("/#subscriptions");
+  const amount = page.getByRole("group", { name: `${prefix} One`, exact: true }).getByLabel(/^每期费用/);
+  await amount.fill("42");
+  let failReload = true;
+  await page.route("**/api/subscription-groups", async route => {
+    if (route.request().method() === "PUT") await route.fulfill({ status: 500, json: { error: "保存失败" } });
+    else if (failReload) await route.fulfill({ status: 503, json: { error: "暂时无法重新加载" } });
+    else await route.continue();
+  });
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("保存失败");
+  await page.getByRole("button", { name: "重新加载", exact: true }).click();
+  await page.getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(page.getByText("暂时无法重新加载", { exact: true })).toBeVisible();
+  await expect(amount).toHaveValue("42");
+  await page.getByRole("link", { name: "首页", exact: true }).click();
+  await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+  await expect(amount).toHaveValue("42");
+  failReload = false;
+  await page.getByRole("button", { name: "重新加载", exact: true }).click();
+  await page.getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(amount).toHaveValue("21");
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+});
+
+test("renewal marking stays on the home page and survives management edits", async ({ page, request }) => {
+  await seed(request);
+  await page.goto("/");
+  await page.getByLabel("搜索订阅").fill(`${prefix} One`);
+  await page.getByRole("button", { name: `${prefix} One：标记为已续费`, exact: true }).click();
+  await expect(page.getByRole("button", { name: `${prefix} One：已付费，点击撤销`, exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("link", { name: "管理订阅", exact: true }).click();
+  await page.getByRole("group", { name: `${prefix} One`, exact: true }).getByRole("switch").click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  await page.getByRole("link", { name: "首页", exact: true }).click();
+  await page.getByLabel("搜索订阅").fill(`${prefix} One`);
+  await expect(page.getByRole("button", { name: `${prefix} One：已付费，点击撤销`, exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: `${prefix} One：续费提醒已关闭`, exact: true })).toBeVisible();
+});
+
+test("all pages fit narrow screens", async ({ page, request }) => {
+  await seed(request);
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const [path, heading] of [["/", "我的订阅"], ["/#subscriptions", "管理订阅"], ["/#settings", "设置"]]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+      if (path === "/#subscriptions") await expect(page.getByRole("button", { name: "保存", exact: true })).toBeVisible();
+      if (path === "/#settings") await expect(page.getByLabel(/^时区/)).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    }
   }
 });
 
-test("settings are validated, saved and loaded after reload", async ({
-  page,
-  request,
-}) => {
+test("settings validation persistence and unsaved changes remain independent", async ({ page, request }) => {
   const original = await (await request.get("/api/settings")).json();
   try {
     await page.goto("/#settings");
-    await page.getByRole("link", { name: "设置", exact: true }).click();
-    await expect(page.getByLabel("页面标题")).toHaveCount(0);
-    await page.getByLabel(/^提前提醒天数/).fill("11");
     await page.getByLabel(/^时区/).fill("Invalid/Timezone");
     await page.getByRole("button", { name: "保存设置", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("IANA");
     await page.getByLabel(/^时区/).fill("Asia/Shanghai");
+    await page.getByLabel(/^提前提醒天数/).fill("11");
     await page.getByRole("button", { name: "保存设置", exact: true }).click();
-    await expect(page).toHaveTitle("Barque");
+    await expect(page.getByText("尚未保存", { exact: true })).toHaveCount(0);
     await page.reload();
-    await page.getByRole("link", { name: "设置", exact: true }).click();
     await expect(page.getByLabel(/^提前提醒天数/)).toHaveValue("11");
-    await expect(
-      page.getByRole("button", { name: "发送测试通知" }),
-    ).toBeDisabled();
-  } finally {
-    const response = await request.put("/api/settings", {
-      headers,
-      data: original,
-    });
-    expect(response.ok()).toBeTruthy();
-  }
+    await page.getByLabel(/^时区/).fill("Europe/London");
+    await page.getByRole("link", { name: "管理订阅", exact: true }).click();
+    await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await expect(page.getByLabel(/^时区/)).toHaveValue("Europe/London");
+    await page.getByRole("link", { name: "首页", exact: true }).click();
+    await page.getByRole("button", { name: "放弃更改", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
+  } finally { expect((await request.put("/api/settings", { headers, data: original })).ok()).toBeTruthy(); }
 });
 
-test("theme always follows the system, including when a legacy preference exists", async ({
-  page,
-}) => {
-  await page.addInitScript(() => localStorage.setItem("barque-theme", "dark"));
+test("theme follows the system", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "切换主题" })).toHaveCount(0);
   await expect(page.locator("html")).not.toHaveClass(/dark/);
-  const light = await page
-    .locator("body")
-    .evaluate((element) => getComputedStyle(element).backgroundColor);
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveClass(/dark/);
-  expect(
-    await page
-      .locator("body")
-      .evaluate((element) => getComputedStyle(element).backgroundColor),
-  ).not.toEqual(light);
-  await page.reload();
+  await page.getByRole("link", { name: "管理订阅", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "管理订阅" })).toBeVisible();
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await page.emulateMedia({ colorScheme: "light" });
-  await expect(page.locator("html")).not.toHaveClass(/dark/);
-});
-
-test("mobile overview and subscription dialog fit the viewport", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBeTruthy();
-  await expect(
-    page.getByRole("link", { name: "我的订阅", exact: true }),
-  ).toHaveAttribute("href", "#");
-  await expect(
-    page.getByRole("button", { name: "刷新概览", exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "添加订阅", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
-  const box = await dialog.boundingBox();
-  expect(box!.x).toBeGreaterThanOrEqual(0);
-  expect(box!.width).toBeLessThanOrEqual(390);
-  await dialog.getByRole("button", { name: "取消", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-});
-
-test("one password protects overview and management, and logout revokes access", async ({
-  page,
-}) => {
-  await page.context().clearCookies();
-  expect((await page.request.get("/api/dashboard")).status()).toBe(401);
-  expect((await page.request.get("/api/settings")).status()).toBe(401);
-  expect((await page.request.get("/api/subscriptions")).status()).toBe(401);
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "我的订阅" })).not.toBeVisible();
-  await expect(page.getByLabel(/^用户名/)).toHaveCount(0);
-  await expect(page.locator("input")).toHaveCount(1);
-  await expect(page.getByRole("button")).toHaveCount(1);
-  await expect(page.locator("main img")).toHaveCount(0);
-  await expect(page.getByText("输入访问密码", { exact: true })).toHaveCount(0);
-  await page.getByLabel(/^密码/).fill("incorrect");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("密码不正确");
-  await page.getByLabel(/^密码/).fill(password!);
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
-  await page.getByRole("link", { name: "设置", exact: true }).click();
-  await expect(page.getByLabel("当前密码")).toHaveCount(0);
-  expect(new URL(page.url()).pathname).toBe("/");
-  await page.getByRole("button", { name: "退出登录" }).click();
-  await expect(page.getByLabel(/^密码/)).toBeVisible();
-  expect((await page.request.get("/api/subscriptions")).status()).toBe(401);
-  await page.reload();
-  await expect(page.getByLabel(/^密码/)).toBeVisible();
-});
-
-test("overview actions edit and delete the selected card without navigation or losing filters", async ({
-  page,
-  request,
-}) => {
-  const name = `E2E Direct ${Date.now()}`;
-  const renamed = `${name} Updated`;
-  try {
-    await page.goto("/");
-    await page.getByRole("button", { name: "添加订阅", exact: true }).click();
-    await page.getByLabel(/^订阅名称/).fill(name);
-    await page.getByLabel(/^分类/).fill("测试");
-    await page.getByLabel(/^每期费用/).fill("12");
-    await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await page.getByRole("textbox", { name: "搜索订阅" }).fill(name);
-    expect(new URL(page.url()).hash).toBe("");
-    await page.getByRole("button", { name: `${name} 操作` }).click();
-    await expect(page.getByRole("menuitemcheckbox")).toHaveCount(0);
-    await expect(page.getByRole("menuitem")).toHaveText(["编辑", "前移", "后移", "删除"]);
-    await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
-    await expect(page.getByLabel("订阅名称")).toHaveValue(name);
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "取消", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: `${name} 操作` }),
-    ).toBeFocused();
-    await page.getByRole("button", { name: `${name} 操作` }).click();
-    await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
-    await page.getByLabel("订阅名称").fill(renamed);
-    await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await expect(page.getByText(renamed, { exact: true })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "搜索订阅" })).toHaveValue(
-      name,
-    );
-    expect(new URL(page.url()).hash).toBe("");
-    await page.getByRole("button", { name: new RegExp(`^${renamed}：(?:标记为已续费|本期已续费)`)}).click();
-    await expect(
-      page.locator('[role="progressbar"][aria-valuetext*="本期已续费"]'),
-    ).toBeVisible();
-    await page.getByRole("button", { name: new RegExp(`^${renamed}：(?:标记为已续费|本期已续费)`)}).click();
-    await expect(
-      page.locator('[role="progressbar"][aria-valuetext*="本期已续费"]'),
-    ).toHaveCount(0);
-    await page.getByRole("button", { name: `${renamed} 操作` }).click();
-    await page.getByRole("menuitem", { name: "删除", exact: true }).click();
-    await page
-      .getByRole("alertdialog")
-      .getByRole("button", { name: "取消", exact: true })
-      .click();
-    await expect(page.getByText(renamed, { exact: true })).toBeVisible();
-    let failed = false;
-    await page.route("**/api/subscriptions/*", async (route) => {
-      if (route.request().method() === "DELETE" && !failed) {
-        failed = true;
-        await route.fulfill({
-          status: 500,
-          json: { error: "删除失败，请重试" },
-        });
-      } else await route.continue();
-    });
-    await page.getByRole("button", { name: `${renamed} 操作` }).click();
-    await page.getByRole("menuitem", { name: "删除", exact: true }).click();
-    await page.getByRole("button", { name: "确认删除", exact: true }).click();
-    await expect(
-      page.getByRole("alertdialog").getByRole("alert"),
-    ).toContainText("删除失败");
-    await page.getByRole("button", { name: "确认删除", exact: true }).click();
-    await expect(page.getByRole("alertdialog")).not.toBeVisible();
-    await expect(page.getByText(renamed, { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("textbox", { name: "搜索订阅" })).toHaveValue(
-      name,
-    );
-    expect(new URL(page.url()).hash).toBe("");
-  } finally {
-    const items = await (await request.get("/api/subscriptions")).json();
-    for (const item of items.filter(
-      (item: { name: string }) => item.name === name || item.name === renamed,
-    )) {
-      await request.delete(`/api/subscriptions/${item.id}`, {
-        headers,
-        data: {},
-      });
-    }
-  }
-});
-
-test("notification preferences live in subscription settings and use bell status icons", async ({
-  page,
-  request,
-}) => {
-  const name = `E2E preferences ${Date.now()}`;
-  const response = await request.post("/api/subscriptions", {
-    headers,
-    data: {
-      name,
-      category: "测试",
-      billing_cycle: "month",
-      payment_date: new Date().toLocaleDateString("en-CA"),
-      amount: 21,
-      currency: "CNY",
-      notify_enabled: true,
-    },
-  });
-  expect(response.ok()).toBeTruthy();
-  const item = await response.json();
-  const preferences = `/api/subscriptions/${item.id}/notifications`;
-  const paid = page.locator('[role="progressbar"][aria-valuetext*="本期已续费"]');
-  try {
-    await page.goto("/");
-    await expect(
-      page.getByRole("heading", { name: "我的订阅", exact: true }),
-    ).toBeVisible();
-    await page.getByRole("textbox", { name: "搜索订阅" }).fill(name);
-    await expect(
-      page.getByRole("button", { name: `${name}：续费提醒已开启`, exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: `${name}：续费提醒已开启`, exact: true }).click();
-    await expect(page.getByRole("button", { name: `${name}：续费提醒已关闭`, exact: true })).toHaveAttribute("aria-pressed", "false");
-    await expect(page.locator('[data-sonner-toast]').filter({hasText: "已关闭续费提醒"})).toBeVisible();
-    await page.getByRole("button", { name: `${name}：续费提醒已关闭`, exact: true }).click();
-    await expect(page.getByRole("button", { name: `${name}：续费提醒已开启`, exact: true })).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: `${name} 操作` }).click();
-    await expect(page.getByRole("menuitemcheckbox")).toHaveCount(0);
-    await expect(
-      page.getByRole("menuitemcheckbox", { name: "续费提醒", exact: true }),
-    ).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    await page.getByRole("button", {name: `${name}：标记为已续费`, exact: true}).click();
-    await expect(paid).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: `${name}：续费提醒已开启`, exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: `${name} 操作` }).click();
-    await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
-    await expect(
-      page.getByRole("switch", { name: "续费提醒", exact: true }),
-    ).toBeChecked();
-    await page.getByRole("switch", { name: "续费提醒", exact: true }).click();
-    await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await expect(
-      page.getByRole("button", { name: `${name}：续费提醒已关闭`, exact: true }),
-    ).toBeVisible();
-    await expect(paid).toBeVisible();
-    await page.getByRole("button", { name: new RegExp(`^${name}：(?:标记为已续费|本期已续费)`)}).click();
-    await expect(paid).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: `${name}：续费提醒已关闭`, exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: `${name} 操作` }).click();
-    await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
-    await expect(
-      page.getByRole("switch", { name: "续费提醒", exact: true }),
-    ).not.toBeChecked();
-    expect(
-      (
-        await request.put(preferences, { headers, data: { enabled: true } })
-      ).ok(),
-    ).toBeTruthy();
-    await page.getByLabel("每期费用").fill("22");
-    await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await page.reload();
-    await page.getByRole("textbox", { name: "搜索订阅" }).fill(name);
-    await expect(
-      page.getByRole("button", { name: `${name}：续费提醒已开启`, exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole("button", {name: `${name}：标记为已续费`, exact: true})).toHaveAttribute("aria-pressed", "false");
-  } finally {
-    await request.delete(`/api/subscriptions/${item.id}`, {
-      headers,
-      data: {},
-    });
-  }
-});
-
-
-test("unsaved settings block navigation and browser unload", async ({page}) => {
-  await page.goto("/#settings");
-  const title = page.getByLabel(/^时区/);
-  await title.fill("Europe/London");
-  await page.getByRole("link", {name: "我的订阅", exact: true}).click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", {name: "继续编辑", exact: true}).click();
-  await expect(title).toHaveValue("Europe/London");
-  expect(await page.evaluate(() => { const event = new Event("beforeunload", {cancelable: true}); window.dispatchEvent(event); return event.defaultPrevented; })).toBeTruthy();
-  const prompt = page.waitForEvent("dialog");
-  const reload = page.evaluate(() => location.reload());
-  const dialog = await prompt;
-  expect(dialog.type()).toBe("beforeunload");
-  await dialog.dismiss();
-  await reload;
-  await expect(title).toHaveValue("Europe/London");
-  await page.evaluate(() => { location.hash = ""; });
-  await page.getByRole("button", {name: "放弃更改", exact: true}).click();
-  await expect(page.getByRole("heading", {name: "我的订阅", exact: true})).toBeVisible();
-  expect(await page.evaluate(() => { const event = new Event("beforeunload", {cancelable: true}); window.dispatchEvent(event); return event.defaultPrevented; })).toBeFalsy();
-});
-
-test("subscription date and currency use shadcn selectors and edits can be discarded", async ({page, request}) => {
-  await page.goto("/");
-  await page.getByRole("button", {name: "添加订阅", exact: true}).click();
-  await expect(page.locator('input[type="date"]')).toHaveCount(0);
-  await page.getByLabel(/^付款日期/).click();
-  await expect(page.locator('[data-slot="calendar"]')).toBeVisible();
-  await expect(page.locator('[data-slot="calendar"] select')).toHaveCount(2);
-  const calendar = page.locator('[data-slot="calendar"]');
-  await calendar.locator('select').filter({has: page.locator('option[value="2000"]')}).selectOption("2000");
-  await calendar.locator('select').filter({has: page.locator('option[value="1"]')}).selectOption("1");
-  await calendar.getByRole("button", {name: /29/}).click();
-  await expect(page.getByLabel(/^付款日期/)).toHaveText("2000-02-29");
-  await page.getByLabel(/^币种/).click();
-  const labels = await page.getByRole("option").allTextContents();
-  const codes = labels.map(label => label.slice(0, 3));
-  const catalog = await (await request.get("/api/currencies")).json();
-  expect(codes).toEqual(catalog.map((item: {code: string}) => item.code));
-  await page.getByRole("option", {name: /^USD/}).click();
-  await page.getByLabel(/^订阅名称/).fill("Discard me");
-  await page.getByRole("button", {name: "取消", exact: true}).click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", {name: "放弃更改", exact: true}).click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-});
-
-test("menus persist category and subscription order and renewal actions share a right edge", async ({ page, request }) => {
-  const prefix = `Order ${Date.now()}`;
-  const firstCategory = `${prefix} A`;
-  const secondCategory = `${prefix} B`;
-  const ids: string[] = [];
-  try {
-    for (const [name, category] of [[`${prefix} 1`, firstCategory], [`${prefix} 2`, firstCategory], [`${prefix} 3`, secondCategory]]) {
-      const response = await request.post("/api/subscriptions", { headers, data: { name, category, billing_cycle: "month", payment_date: new Date().toLocaleDateString("en-CA"), amount: 10, currency: "CNY", notify_enabled: true } });
-      expect(response.ok()).toBeTruthy();
-      ids.push((await response.json()).id);
-    }
-    await page.goto("/");
-    await page.getByRole("button", { name: `${prefix} 2 操作`, exact: true }).click();
-    await page.getByRole("menuitem", { name: "前移", exact: true }).click();
-    const group = page.getByRole("region", { name: firstCategory, exact: true });
-    await expect(group.locator('[data-slot="card-title"]')).toHaveText([`${prefix} 2`, `${prefix} 1`]);
-    await page.getByRole("button", { name: `${secondCategory} 分类操作`, exact: true }).click();
-    await page.getByRole("menuitem", { name: "上移", exact: true }).click();
-    await expect(page.getByRole("region").filter({ hasText: prefix }).first()).toHaveAttribute("aria-label", secondCategory);
-    await page.reload();
-    await expect(group.locator('[data-slot="card-title"]')).toHaveText([`${prefix} 2`, `${prefix} 1`]);
-    await expect(page.getByRole("region").filter({ hasText: prefix }).first()).toHaveAttribute("aria-label", secondCategory);
-    const action = page.getByRole("button", { name: `${prefix} 2：标记为已续费`, exact: true });
-    const before = await action.boundingBox();
-    await action.click();
-    const renewed = page.getByRole("button", { name: `${prefix} 2：本期已续费，点击撤销`, exact: true });
-    await expect(renewed).toBeVisible();
-    const after = await renewed.boundingBox();
-    expect(Math.abs(before!.x + before!.width - after!.x - after!.width)).toBeLessThan(1);
-    await page.getByRole("textbox", { name: "搜索订阅" }).fill(prefix);
-    await page.getByRole("button", { name: `${prefix} 2 操作`, exact: true }).click();
-    await expect(page.getByRole("menuitem", { name: "前移", exact: true })).toBeDisabled();
-    await expect(page.getByRole("menuitem", { name: "后移", exact: true })).toBeDisabled();
-  } finally {
-    for (const id of ids) await request.delete(`/api/subscriptions/${id}`, { headers, data: {} });
-  }
 });

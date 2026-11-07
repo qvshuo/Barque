@@ -78,7 +78,7 @@ class Scheduler:
         rates_cache = exchange.sync_once_per_day(today, {subscription.currency for subscription in config.subscriptions})
         self.last_check_at = now_iso(config.app.timezone)
         dashboard = self._build_dashboard(config, exchange, rates_cache, today)
-        self.database.cleanup_renewals(collect_active_cycle_keys(dashboard))
+        self.database.cleanup_renewals(collect_active_cycle_keys(dashboard), config.subscriptions)
         if config.app.notify_url and local_now(config.app.timezone).strftime("%H:%M") >= config.app.reminder_time:
             self.send_due_notifications(config, dashboard)
         return dashboard
@@ -93,8 +93,11 @@ class Scheduler:
 
     def send_due_notifications(self, config, dashboard: dict) -> None:
         log_data = self.database.read_state("notification_log", {"notifications": []})
-        notifications = log_data.get("notifications", [])
-        sent_keys = {item.get("dedupe_key") for item in notifications if isinstance(item, dict)}
+        active_keys = collect_active_cycle_keys(dashboard)
+        notifications = [item for item in log_data.get("notifications", []) if isinstance(item, dict) and item.get("dedupe_key") in active_keys]
+        if notifications != log_data.get("notifications", []):
+            self.database.write_state("notification_log", {"notifications": notifications})
+        sent_keys = {item["dedupe_key"] for item in notifications}
         for group in dashboard["category_groups"]:
             for item in group["subscription_items"]:
                 if self.stop_event.is_set():
@@ -120,4 +123,4 @@ class Scheduler:
                     notifications.append({"dedupe_key": dedupe_key, "subscription_id": item["subscription_id"], "payment_date": item["payment_date"], "renewal_date": item["renewal_date"], "sent_at": now_iso(config.app.timezone)})
                     sent_keys.add(dedupe_key)
                     # Persist each success so a later failure cannot resend earlier messages.
-                    self.database.write_state("notification_log", {"notifications": notifications[-1000:]})
+                    self.database.write_state("notification_log", {"notifications": notifications})

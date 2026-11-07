@@ -15,25 +15,10 @@ def is_cycle_renewed(
     return bool(state.get(_cycle_key(subscription_id, payment_date, renewal_date)))
 
 
-def set_cycle_renewed(
-    state: dict[str, Any],
-    subscription_id: str,
-    payment_date: str,
-    renewal_date: str,
-    renewed: bool,
-) -> dict[str, Any]:
-    key = _cycle_key(subscription_id, payment_date, renewal_date)
-    if renewed:
-        state[key] = True
-    else:
-        state.pop(key, None)
-    return state
-
-
 def build_button_state(days_left: int, cycle_renewed: bool, remind_before_days: int) -> dict[str, Any]:
     """Return the status chip and menu action data rendered by the frontend."""
     if cycle_renewed:
-        status_kind, status_label = "renewed", "本期已续费"
+        status_kind, status_label = "renewed", "已付费"
         action_label, action_intent = "撤销已续费", "unmark"
     elif days_left <= remind_before_days:
         status_kind, status_label = "renewal_pending", "即将到期"
@@ -53,10 +38,3 @@ def build_button_state(days_left: int, cycle_renewed: bool, remind_before_days: 
 
 def build_toggle_response(days_left: int, renewed: bool, remind_before_days: int) -> dict[str, Any]:
     return build_button_state(days_left, renewed, remind_before_days) | {"renewed": renewed}
-
-
-def cleanup_renewal_state(state: dict[str, Any], active_keys: set[str]) -> dict[str, Any]:
-    cleaned = {key: value for key, value in state.items() if key in active_keys}
-    if len(cleaned) != len(state):
-        return cleaned
-    return state

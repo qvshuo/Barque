@@ -21,7 +21,11 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     if (!dirty) return;
-    const block = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const block = (event: BeforeUnloadEvent) => {
+      if (!changes.current.size) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
     window.addEventListener("beforeunload", block);
     return () => window.removeEventListener("beforeunload", block);
   }, [dirty]);

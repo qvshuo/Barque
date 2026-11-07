@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import math
+import re
 from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urlparse
@@ -61,10 +61,13 @@ def validate_settings(data: dict) -> AppConfig:
     notify_url = notify_url.strip()
     if notify_url:
         parsed = urlparse(notify_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or any(char.isspace() for char in notify_url):
             raise ValueError("Bark 地址必须是有效的 HTTP(S) 地址，例如 https://api.day.app/你的密钥")
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("Bark 地址端口无效") from exc
     reminder_time = data.get("reminder_time", "09:00")
-    import re
     if not isinstance(reminder_time, str) or not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", reminder_time):
         raise ValueError("提醒时间须为有效的 HH:MM 时间")
     return AppConfig(timezone, data["check_interval_seconds"], data["remind_before_days"], notify_url, reminder_time)
@@ -83,7 +86,7 @@ def validate_subscription(data: dict, subscription_id: str = "") -> Subscription
     except ValueError as exc:
         raise ValueError("付款日期必须是有效的 YYYY-MM-DD 日期") from exc
     amount = data.get("amount")
-    if type(amount) not in (int, float) or not math.isfinite(amount) or not 0 <= amount <= 1_000_000_000:
+    if type(amount) not in (int, float) or not 0 <= amount <= 1_000_000_000:
         raise ValueError("费用必须是 0 至 1000000000 之间的有限数字")
     currency = required_str(data, "currency", 3).upper()
     if len(currency) != 3 or not currency.isascii() or not currency.isalpha():
