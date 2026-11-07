@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useRef, type ReactNode } from "react";
 import { Bell, BellOff, Search, Check } from "lucide-react";
 import { toast } from "sonner";
+import { SpendingChart } from "./SpendingChart";
 import {
   api,
   cycleLabels,
@@ -160,23 +161,24 @@ export function SubscriptionsPage() {
         </div>
       ) : (
         summary && (
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <Card>
+            <CardContent className="grid grid-cols-2 gap-6 px-4 sm:px-6 lg:grid-cols-4">
             {[
               ["订阅总数", String(summary.total_subscription_count)],
               ["即将到期", String(summary.expiring_subscription_count)],
               ["本月待付", money(summary.monthly_due_cny, "CNY", true), money(summary.monthly_due_cny)],
               ["预计年支出", money(summary.yearly_estimated_cny, "CNY", true), money(summary.yearly_estimated_cny)],
             ].map(([label, value, fullValue = value]) => (
-              <Card key={label} className="py-4 sm:py-6">
-                <CardHeader className="px-4 sm:px-6">
+              <div key={label} className="min-w-0 space-y-2">
                   <CardDescription>{label}</CardDescription>
                   <CardTitle className="text-xl tabular-nums sm:text-2xl" title={fullValue} aria-label={fullValue}>
                     {value}
                   </CardTitle>
-                </CardHeader>
-              </Card>
+              </div>
             ))}
-          </div>
+            </CardContent>
+            {dashboard && <SpendingChart groups={dashboard.category_groups} selected={category} onSelect={setCategory} />}
+          </Card>
         )
       )}
       {dashboard &&
