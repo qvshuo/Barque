@@ -49,22 +49,27 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }
   useEffect(() => {
-    if (!status?.authenticated) {
+    if (status && !status.authenticated) {
       document.title = "Barque";
       document.getElementById("access-password")?.focus();
     }
   }, [status]);
   if (status?.authenticated) return children;
+  if (!status) return (
+    <main className="flex min-h-dvh items-center justify-center px-4 py-8" aria-live="polite">
+      {error ? (
+        <div className="w-full max-w-xs space-y-3">
+          <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+          <Button type="button" className="w-full" onClick={() => { setError(""); void load(); }}>重试</Button>
+        </div>
+      ) : <p className="text-sm text-muted-foreground">正在验证登录状态…</p>}
+    </main>
+  );
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-8">
       <form
         className="w-full max-w-xs space-y-3"
-        onSubmit={(event) => {
-          if (!status) {
-            event.preventDefault();
-            void load();
-          } else void submit(event);
-        }}
+        onSubmit={(event) => void submit(event)}
       >
         <Input
           id="access-password"
@@ -74,8 +79,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
           placeholder="密码"
           autoComplete="current-password"
           autoFocus
-          required={!!status}
-          disabled={!status || busy}
+          required
+          disabled={busy}
           maxLength={256}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -88,13 +93,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
         <Button
           type="submit"
           className="w-full"
-          disabled={busy || (!status && !error)}
+          disabled={busy}
         >
-          {busy
-            ? "登录中…"
-            : !status && error
-              ? "重试"
-              : "登录"}
+          {busy ? "登录中…" : "登录"}
         </Button>
       </form>
     </main>

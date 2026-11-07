@@ -14,6 +14,38 @@ test.beforeEach(async ({ page, request }) => {
   await page.context().addCookies((await request.storageState()).cookies);
 });
 
+test("session verification never flashes the login form", async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/auth/session", async route => {
+    await gate;
+    await route.continue();
+  });
+  try {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("正在验证登录状态…")).toBeVisible();
+    await expect(page.getByLabel("密码")).toHaveCount(0);
+  } finally {
+    release();
+  }
+  await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
+  await expect(page.getByLabel("密码")).toHaveCount(0);
+});
+
+test("session verification can be retried after a failure", async ({ page }) => {
+  let first = true;
+  await page.route("**/api/auth/session", async route => {
+    if (first) {
+      first = false;
+      await route.fulfill({ status: 503, json: { error: "暂时无法连接" } });
+    } else await route.continue();
+  });
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("暂时无法连接");
+  await page.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByRole("heading", { name: "我的订阅" })).toBeVisible();
+});
+
 test("cycle markings and edits persist after reload", async ({
   page,
   request,
