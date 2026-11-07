@@ -23,7 +23,7 @@ test("session verification never flashes the login form", async ({ page }) => {
   });
   try {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText("正在验证登录状态…")).toBeVisible();
+    await expect(page.locator("main")).toBeEmpty();
     await expect(page.getByLabel("密码")).toHaveCount(0);
   } finally {
     release();

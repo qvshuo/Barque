@@ -56,13 +56,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [status]);
   if (status?.authenticated) return children;
   if (!status) return (
-    <main className="flex min-h-dvh items-center justify-center px-4 py-8" aria-live="polite">
-      {error ? (
+    <main className="flex min-h-dvh items-center justify-center px-4 py-8">
+      {error && (
         <div className="w-full max-w-xs space-y-3">
           <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
           <Button type="button" className="w-full" onClick={() => { setError(""); void load(); }}>重试</Button>
         </div>
-      ) : <p className="text-sm text-muted-foreground">正在验证登录状态…</p>}
+      )}
     </main>
   );
   return (
