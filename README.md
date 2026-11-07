@@ -17,7 +17,7 @@ git clone https://github.com/qvshuo/Barque.git --depth=1
 cd Barque
 mkdir -p data
 cp docker-compose.example.yml docker-compose.yml
-# 编辑 docker-compose.yml，按文件中的提示设置访问密码
+# 编辑 docker-compose.yml，设置访问密码
 docker compose up -d --build
 ```
 
