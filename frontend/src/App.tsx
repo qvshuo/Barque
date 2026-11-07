@@ -9,6 +9,7 @@ import {
   type Dashboard,
   type SubscriptionItem,
 } from "./api";
+import { CategoryMenu } from "@/components/move-menu";
 import { SettingsPage } from "./Settings";
 import { useNavigationGuard } from "./UnsavedChanges";
 import { SubscriptionDialog, newSubscription } from "./SubscriptionDialog";
@@ -154,6 +155,7 @@ function SubscriptionsPage() {
   const [category, setCategory] = useState("all");
   const [pending, setPending] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [notifying, setNotifying] = useState<string | null>(null);
   const requestId = useRef(0);
   const load = useCallback(async () => {
@@ -214,6 +216,15 @@ function SubscriptionsPage() {
     } catch (error) { toast.error((error as Error).message); }
     finally { setNotifying(null); }
   }
+  async function move(kind: "category" | "subscription", target: string, direction: "forward" | "backward") {
+    setMoving(true);
+    try {
+      await api("/order", "PUT", { kind, target, direction });
+      await load();
+    } catch (error) { toast.error((error as Error).message); }
+    finally { setMoving(false); }
+  }
+  const canSort = !search.trim() && category === "all" && !moving && pending === null && notifying === null;
   const summary = dashboard?.summary;
   const groups = dashboard?.category_groups
     .filter((group) => category === "all" || category === group.category_name)
@@ -324,7 +335,7 @@ function SubscriptionsPage() {
                 description="试试其他关键词或分类。"
               />
             )}
-            {groups?.map((group) => (
+            {groups?.map((group, groupIndex) => (
               <section
                 key={group.category_name}
                 className="space-y-4"
@@ -334,13 +345,13 @@ function SubscriptionsPage() {
                   <h2 className="text-sm font-medium">
                     {group.category_name}
                   </h2>
-                  <span className="text-xs tabular-nums text-muted-foreground">{group.subscription_items.length}</span>
+                  <CategoryMenu name={group.category_name} canForward={canSort && groupIndex > 0} canBackward={canSort && groupIndex < groups.length - 1} onMove={direction => void move("category", group.category_name, direction)} />
                   <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                    约 {money(group.yearly_estimated_cny)} / 年
+                    {group.subscription_items.length} 个订阅，约 {money(group.yearly_estimated_cny)} / 年
                   </span>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {group.subscription_items.map((item) => (
+                  {group.subscription_items.map((item, itemIndex) => (
                     <Card key={item.subscription_id} className="gap-3">
                       <CardHeader className="grid-rows-1">
                         <div className="flex items-start justify-between gap-2">
@@ -350,7 +361,7 @@ function SubscriptionsPage() {
                             </CardTitle>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
-                            <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={`${item.name}：续费提醒已${item.notify_enabled ? "开启" : "关闭"}`} aria-pressed={item.notify_enabled} title={`续费提醒已${item.notify_enabled ? "开启" : "关闭"}`} disabled={notifying !== null || pending !== null} onClick={() => void toggleNotification(item)}>
+                            <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={`${item.name}：续费提醒已${item.notify_enabled ? "开启" : "关闭"}`} aria-pressed={item.notify_enabled} title={`续费提醒已${item.notify_enabled ? "开启" : "关闭"}`} disabled={moving || notifying !== null || pending !== null} onClick={() => void toggleNotification(item)}>
                               {item.notify_enabled ? <Bell className="size-4" /> : <BellOff className="size-4" />}
                             </Button>
                             <SubscriptionMenu
@@ -358,7 +369,8 @@ function SubscriptionsPage() {
                                 ...item,
                                 id: item.subscription_id,
                               }}
-                              pending={pending !== null || notifying !== null}
+                              pending={moving || pending !== null || notifying !== null}
+                              move={{ canForward: canSort && itemIndex > 0, canBackward: canSort && itemIndex < group.subscription_items.length - 1, onMove: direction => void move("subscription", item.subscription_id, direction) }}
                               onSaved={() => load()}
                               onDeleted={() => void load()}
                             />
@@ -399,11 +411,11 @@ function SubscriptionsPage() {
                         </span>}
                         <Button
                           variant="link"
-                          className="ml-auto h-auto gap-1 px-0 py-1 text-xs font-normal text-muted-foreground hover:text-foreground hover:no-underline"
+                          className="ml-auto h-auto justify-end gap-1 px-0 py-1 has-[>svg]:px-0 text-xs font-normal text-muted-foreground hover:text-foreground hover:no-underline"
                           aria-label={`${item.name}：${item.button_state.status_kind === "renewed" ? "本期已续费，点击撤销" : "标记为已续费"}`}
                           aria-pressed={item.button_state.status_kind === "renewed"}
                           aria-busy={pending === item.subscription_id}
-                          disabled={pending !== null || notifying !== null}
+                          disabled={moving || pending !== null || notifying !== null}
                           title={item.button_state.status_kind === "renewed" ? "点击撤销本期续费" : "标记后，本期不再提醒"}
                           onClick={() => void mark(item, item.button_state.status_kind !== "renewed")}
                         >

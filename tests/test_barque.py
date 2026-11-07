@@ -67,6 +67,33 @@ class BarqueTests(unittest.TestCase):
             response = client.get("/assets/missing.css", headers={"Accept-Encoding": "gzip"})
             self.assertEqual(response.status_code, 404)
 
+    def test_manual_order_persists_and_stays_inside_category(self):
+        first = self.add()
+        second = self.db.save_subscription({**self.payload, "name": "Second"})
+        third = self.db.save_subscription({**self.payload, "name": "Third", "category": "Other"})
+        self.assertEqual(self.request("PUT", "/api/order", {"kind": "subscription", "target": second.id, "direction": "forward"}).status_code, 204)
+        self.assertEqual([item.id for item in Database(self.data_dir).get_config().subscriptions], [second.id, first["id"], third.id])
+        self.db.move("category", "Other", "forward")
+        self.assertEqual([item.id for item in self.db.get_config().subscriptions], [third.id, second.id, first["id"]])
+        self.db.move("subscription", second.id, "forward")
+        self.assertEqual([item.id for item in self.db.get_config().subscriptions], [third.id, second.id, first["id"]])
+        self.assertEqual(self.request("PUT", "/api/order", {"kind": [], "target": third.id, "direction": "forward"}).status_code, 400)
+        config = self.db.get_config()
+        self.db.import_config({"version": 1, "settings": asdict(config.app), "subscriptions": [asdict(item) for item in config.subscriptions]})
+        self.assertEqual([item.id for item in self.db.get_config().subscriptions], [third.id, second.id, first["id"]])
+
+    def test_order_drops_deleted_categories_and_appends_recategorized_items(self):
+        first = self.db.save_subscription({**self.payload, "category": "A"})
+        second = self.db.save_subscription({**self.payload, "category": "B"})
+        third = self.db.save_subscription({**self.payload, "category": "C"})
+        self.db.move("category", "B", "backward")
+        self.db.delete_subscription(first.id)
+        new = self.db.save_subscription({**self.payload, "category": "A"})
+        self.assertEqual([item.category for item in self.db.get_config().subscriptions], ["C", "B", "A"])
+        extra = self.db.save_subscription({**self.payload, "category": "B"})
+        self.db.save_subscription({**self.payload, "category": "B"}, third.id)
+        self.assertEqual([item.id for item in self.db.get_config().subscriptions], [second.id, extra.id, third.id, new.id])
+
     def test_fresh_install_needs_no_configuration(self):
         self.assertEqual(self.client.get("/health").status_code, 200)
         dashboard = self.client.get("/api/dashboard").json

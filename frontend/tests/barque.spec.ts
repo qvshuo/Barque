@@ -244,7 +244,7 @@ test("overview actions edit and delete the selected card without navigation or l
     expect(new URL(page.url()).hash).toBe("");
     await page.getByRole("button", { name: `${name} 操作` }).click();
     await expect(page.getByRole("menuitemcheckbox")).toHaveCount(0);
-    await expect(page.getByRole("menuitem")).toHaveText(["编辑", "删除"]);
+    await expect(page.getByRole("menuitem")).toHaveText(["编辑", "前移", "后移", "删除"]);
     await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
     await expect(page.getByLabel("订阅名称")).toHaveValue(name);
     await page
@@ -451,4 +451,42 @@ test("subscription date and currency use shadcn selectors and edits can be disca
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await page.getByRole("button", {name: "放弃更改", exact: true}).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+});
+
+test("menus persist category and subscription order and renewal actions share a right edge", async ({ page, request }) => {
+  const prefix = `Order ${Date.now()}`;
+  const firstCategory = `${prefix} A`;
+  const secondCategory = `${prefix} B`;
+  const ids: string[] = [];
+  try {
+    for (const [name, category] of [[`${prefix} 1`, firstCategory], [`${prefix} 2`, firstCategory], [`${prefix} 3`, secondCategory]]) {
+      const response = await request.post("/api/subscriptions", { headers, data: { name, category, billing_cycle: "month", payment_date: new Date().toLocaleDateString("en-CA"), amount: 10, currency: "CNY", notify_enabled: true } });
+      expect(response.ok()).toBeTruthy();
+      ids.push((await response.json()).id);
+    }
+    await page.goto("/");
+    await page.getByRole("button", { name: `${prefix} 2 操作`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "前移", exact: true }).click();
+    const group = page.getByRole("region", { name: firstCategory, exact: true });
+    await expect(group.locator('[data-slot="card-title"]')).toHaveText([`${prefix} 2`, `${prefix} 1`]);
+    await page.getByRole("button", { name: `${secondCategory} 分类操作`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "上移", exact: true }).click();
+    await expect(page.getByRole("region").filter({ hasText: prefix }).first()).toHaveAttribute("aria-label", secondCategory);
+    await page.reload();
+    await expect(group.locator('[data-slot="card-title"]')).toHaveText([`${prefix} 2`, `${prefix} 1`]);
+    await expect(page.getByRole("region").filter({ hasText: prefix }).first()).toHaveAttribute("aria-label", secondCategory);
+    const action = page.getByRole("button", { name: `${prefix} 2：标记为已续费`, exact: true });
+    const before = await action.boundingBox();
+    await action.click();
+    const renewed = page.getByRole("button", { name: `${prefix} 2：本期已续费，点击撤销`, exact: true });
+    await expect(renewed).toBeVisible();
+    const after = await renewed.boundingBox();
+    expect(Math.abs(before!.x + before!.width - after!.x - after!.width)).toBeLessThan(1);
+    await page.getByRole("textbox", { name: "搜索订阅" }).fill(prefix);
+    await page.getByRole("button", { name: `${prefix} 2 操作`, exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "前移", exact: true })).toBeDisabled();
+    await expect(page.getByRole("menuitem", { name: "后移", exact: true })).toBeDisabled();
+  } finally {
+    for (const id of ids) await request.delete(`/api/subscriptions/${id}`, { headers, data: {} });
+  }
 });

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type Subscription } from "./api";
+import { MoveMenuItems, type MoveActions } from "@/components/move-menu";
 import { SubscriptionDialog } from "./SubscriptionDialog";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -26,11 +27,13 @@ export function SubscriptionMenu({
   onSaved,
   onDeleted,
   pending,
+  move,
 }: {
   subscription: Subscription;
   onSaved: (subscription: Subscription) => void | Promise<void>;
   onDeleted: (id: string) => void;
   pending?: boolean;
+  move: MoveActions;
 }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -78,6 +81,7 @@ export function SubscriptionMenu({
             <Pencil />
             编辑
           </DropdownMenuItem>
+          <MoveMenuItems {...move} canForward={!pending && move.canForward} canBackward={!pending && move.canBackward} />
           <DropdownMenuItem
             variant="destructive"
             disabled={pending}

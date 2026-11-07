@@ -57,7 +57,64 @@ class Database:
             settings.pop("title", None)  # Ignore the removed setting in existing databases.
             rows = connection.execute("SELECT * FROM subscriptions ORDER BY rowid").fetchall()
             subscriptions = [SubscriptionConfig(**{**dict(row), "notify_enabled": bool(row["notify_enabled"])}) for row in rows]
-            return Config(AppConfig(**settings), subscriptions)
+            order = connection.execute("SELECT value FROM state WHERE key = 'display_order'").fetchone()
+            return Config(AppConfig(**settings), self._ordered(subscriptions, json.loads(order[0]) if order else {}))
+
+    @staticmethod
+    def _ordered(subscriptions, order):
+        categories = list(dict.fromkeys(item.category for item in subscriptions))
+        saved_categories = [name for name in order.get("categories", []) if name in categories]
+        categories = saved_categories + [name for name in categories if name not in saved_categories]
+        category_ranks = {name: index for index, name in enumerate(categories)}
+        ranks = {value: index for index, value in enumerate(order.get("subscriptions", []))}
+        return sorted(subscriptions, key=lambda item: (category_ranks[item.category], ranks.get(item.id, len(ranks))))
+
+    @staticmethod
+    def _prune_order(connection, moved_id=None):
+        row = connection.execute("SELECT value FROM state WHERE key = 'display_order'").fetchone()
+        if row is None:
+            return
+        order = json.loads(row[0])
+        rows = connection.execute("SELECT id, category FROM subscriptions").fetchall()
+        categories = {row["category"] for row in rows}
+        ids = {row["id"] for row in rows}
+        order["categories"] = [name for name in order["categories"] if name in categories]
+        ordered_ids = [value for value in order["subscriptions"] if value in ids and value != moved_id]
+        ordered_ids.extend(row["id"] for row in rows if row["id"] not in ordered_ids and row["id"] != moved_id)
+        if moved_id in ids:
+            ordered_ids.append(moved_id)
+        order["subscriptions"] = ordered_ids
+        Database._write_state(connection, "display_order", order)
+
+    def move(self, kind: str, target: str, direction: str):
+        if not all(isinstance(value, str) for value in (kind, target, direction)) or kind not in {"category", "subscription"} or direction not in {"forward", "backward"}:
+            raise ValueError("排序参数无效")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute("SELECT * FROM subscriptions ORDER BY rowid").fetchall()
+            subscriptions = [SubscriptionConfig(**{**dict(row), "notify_enabled": bool(row["notify_enabled"])}) for row in rows]
+            row = connection.execute("SELECT value FROM state WHERE key = 'display_order'").fetchone()
+            subscriptions = self._ordered(subscriptions, json.loads(row[0]) if row else {})
+            categories = list(dict.fromkeys(item.category for item in subscriptions))
+            ids = [item.id for item in subscriptions]
+            if kind == "category":
+                values = categories
+            else:
+                current = next((item for item in subscriptions if item.id == target), None)
+                if current is None:
+                    raise ValueError("订阅已不存在，请刷新后重试")
+                values = [item.id for item in subscriptions if item.category == current.category]
+            if target not in values:
+                raise ValueError("分类已不存在，请刷新后重试")
+            index = values.index(target)
+            neighbor = index + (-1 if direction == "forward" else 1)
+            if 0 <= neighbor < len(values):
+                if kind == "subscription":
+                    left, right = ids.index(target), ids.index(values[neighbor])
+                    ids[left], ids[right] = ids[right], ids[left]
+                else:
+                    categories[index], categories[neighbor] = categories[neighbor], categories[index]
+            self._write_state(connection, "display_order", {"categories": categories, "subscriptions": ids})
 
     def supported_currencies(self) -> dict[str, str]:
         from app.currencies import DEFAULT_CURRENCIES
@@ -99,6 +156,7 @@ class Database:
                     old.pop(subscription.id)
             for subscription_id in old:
                 connection.execute("DELETE FROM renewals WHERE cycle_key LIKE ?", (subscription_id + ":%",))
+            connection.execute("DELETE FROM state WHERE key = 'display_order'")
             connection.execute("DELETE FROM subscriptions")
             for subscription in subscriptions:
                 self._write_subscription(connection, subscription)
@@ -125,6 +183,8 @@ class Database:
                     raise ValueError("请选择汇率源支持的币种")
                 connection.execute("""UPDATE subscriptions SET name=:name, category=:category, billing_cycle=:billing_cycle,
                     payment_date=:payment_date, amount=:amount, currency=:currency, notify_enabled=:notify_enabled WHERE id=:id""", asdict(subscription))
+                if previous["category"] != subscription.category:
+                    self._prune_order(connection, subscription_id)
                 if previous["payment_date"] != subscription.payment_date or previous["billing_cycle"] != subscription.billing_cycle:
                     connection.execute("DELETE FROM renewals WHERE cycle_key LIKE ?", (subscription_id + ":%",))
             else:
@@ -146,6 +206,7 @@ class Database:
             if not connection.execute("DELETE FROM subscriptions WHERE id = ?", (subscription_id,)).rowcount:
                 raise KeyError(subscription_id)
             connection.execute("DELETE FROM renewals WHERE cycle_key LIKE ?", (subscription_id + ":%",))
+            self._prune_order(connection)
 
     @staticmethod
     def _write_state(connection, key: str, value):

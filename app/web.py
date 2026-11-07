@@ -91,6 +91,12 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
         config = database.get_config()
         return jsonify(title="Barque", **scheduler.get_dashboard(config))
 
+    @app.put("/api/order")
+    def move_item():
+        data = body()
+        database.move(data.get("kind"), data.get("target"), data.get("direction"))
+        return "", 204
+
     @app.get("/api/currencies")
     def currencies():
         return jsonify([{"code": code, "name": name} for code, name in sorted(database.supported_currencies().items())])
