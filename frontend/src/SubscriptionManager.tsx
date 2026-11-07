@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowDown, ArrowUp, CalendarIcon, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarIcon, Plus, Trash2 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhCN } from "react-day-picker/locale";
 import { api, cycleLabels, type Subscription, type SubscriptionGroup, type SubscriptionGroups } from "./api";
 import { useNavigationGuard, useUnsavedChanges } from "./UnsavedChanges";
 import { Field } from "@/components/form-field";
+import { SaveBar } from "@/components/save-bar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -163,13 +164,9 @@ function ManagementForm({ initial, currencies }: {
         ))}
         <Button type="button" variant="outline" onClick={() => setDraft(previous => [...previous, { id: newId(), name: "", subscriptions: [] }])}><Plus />添加分类</Button>
       </fieldset>
-      <div className="sticky bottom-0 z-10 space-y-3 border-t bg-background py-4">
+      <SaveBar dirty={dirty} busy={busy}>
         {error && <Alert variant="destructive"><AlertDescription>{error}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => requestLeave(reload)}>重新加载</Button></AlertDescription></Alert>}
-        <div className="flex items-center justify-end gap-4">
-          {dirty && <span className="text-sm text-muted-foreground">尚未保存</span>}
-          <Button type="submit" disabled={busy || !dirty}><Save />{busy ? "保存中…" : "保存"}</Button>
-        </div>
-      </div>
+      </SaveBar>
     </form>
   );
 }

@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Field } from "@/components/form-field";
+import { SaveBar } from "@/components/save-bar";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useUnsavedChanges } from "./UnsavedChanges";
 
@@ -150,11 +151,6 @@ function SettingsForm({
       onSubmit={(event) => void save(event)}
       className="space-y-6"
     >
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
       <fieldset disabled={busy || testing} className="space-y-6 min-w-0">
         <Card>
           <CardHeader>
@@ -270,13 +266,10 @@ function SettingsForm({
             <AlertDialogFooter><AlertDialogCancel disabled={busy}>取消</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void importConfig(); }}>{busy ? "导入中…" : "确认导入"}</AlertDialogAction></AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <div className="flex items-center gap-4">
-          <Button type="submit" disabled={busy || testing || !dirty}>
-            {busy ? "保存中…" : "保存设置"}
-          </Button>
-          {dirty && <p className="text-sm text-muted-foreground">尚未保存</p>}
-        </div>
       </fieldset>
+      <SaveBar dirty={dirty} busy={busy} disabled={testing}>
+        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      </SaveBar>
     </form>
   );
 }
