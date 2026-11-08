@@ -285,7 +285,7 @@ function ManagementForm({
                         billing_cycle: "month",
                         payment_date: format(new Date(), "yyyy-MM-dd"),
                         amount: 0,
-                        currency: "CNY",
+                        currency: "",
                         notify_enabled: true,
                       },
                     ],
