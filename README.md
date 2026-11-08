@@ -15,8 +15,6 @@
 ```shell
 git clone https://github.com/qvshuo/Barque.git --depth=1
 cd Barque
-mkdir -p data
-sudo chown -R 10001:10001 data
 cp docker-compose.example.yml docker-compose.yml
 # 编辑 docker-compose.yml，设置访问密码
 docker compose up -d --build
@@ -26,9 +24,9 @@ docker compose up -d --build
 
 ## 数据与升级
 
-所有配置、订阅、续费状态、通知去重记录和汇率缓存均保存在 `/app/data/barque.sqlite3`。
+所有配置、订阅、续费状态、通知去重记录和汇率缓存均保存在 Docker 数据卷的 `/app/data/barque.sqlite3`。
 
-已有版本升级时，保留原来的 `data` 挂载，并确保数据目录归 UID/GID `10001:10001` 所有，再执行：
+已有版本升级时，保留原来的数据挂载和 Compose 配置，再执行：
 
 ```shell
 docker compose up -d --build --pull always

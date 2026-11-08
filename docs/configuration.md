@@ -54,17 +54,9 @@ Bark 测试按钮直接使用当前输入地址，无须保存；测试本身不
 
 「备份与恢复」保留「导入」「导出」两个入口，仅处理 JSON 配置。格式仍为 `version: 1`，包含应用设置、订阅、空分类和分类顺序，保持原有导入兼容性；不包含已续费标记、通知记录、汇率缓存或会话。导入上限为 2 MB，覆盖前需要确认。
 
-## HTTPS 代理与容器权限
+## HTTPS 代理
 
 直连 HTTP 默认不设置 Secure Cookie。HTTPS 终止于反向代理时，可设置 `BARQUE_TRUST_PROXY=1`，仅信任最近一层代理的 `X-Forwarded-Proto`；代理必须覆盖该头，并限制客户端绕过代理直连服务。也可设置 `BARQUE_SECURE_COOKIE=1` 强制 Secure Cookie。HTTPS 响应包含 HSTS，其他响应包含防嗅探、防嵌入、来源策略、权限策略及 CSP。
-
-容器使用固定 UID/GID `10001:10001` 运行。首次使用宿主机目录挂载，或升级旧的 root 容器时，先为数据目录设置写权限：
-
-```sh
-mkdir -p data
-sudo chown -R 10001:10001 data
-docker compose up -d --build
-```
 
 ## 开发验证
 
