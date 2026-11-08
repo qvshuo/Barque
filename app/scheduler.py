@@ -10,14 +10,14 @@ from zoneinfo import ZoneInfo
 from app.bark import send_bark_notification
 from app.database import Database
 from app.exchange import ExchangeService
-from app.renewals import is_cycle_renewed
+from app.renewals import cycle_key, is_cycle_renewed
 from app.subscriptions import build_dashboard, collect_active_cycle_keys
 
 logger = logging.getLogger(__name__)
 
 
 def today_in_timezone(timezone_name: str) -> date:
-    return datetime.now(ZoneInfo(timezone_name)).date()
+    return local_now(timezone_name).date()
 
 
 def local_now(timezone_name: str) -> datetime:
@@ -25,7 +25,7 @@ def local_now(timezone_name: str) -> datetime:
 
 
 def now_iso(timezone_name: str) -> str:
-    return datetime.now(ZoneInfo(timezone_name)).isoformat(timespec="seconds")
+    return local_now(timezone_name).isoformat(timespec="seconds")
 
 
 class Scheduler:
@@ -74,30 +74,51 @@ class Scheduler:
         config = config or self.database.get_config()
         today = today_in_timezone(config.app.timezone)
         exchange = ExchangeService(self.database, config.app.timezone, config.app.notify_url)
-        exchange.sync_supported_currencies(today)
-        rates_cache = exchange.sync_once_per_day(today, {subscription.currency for subscription in config.subscriptions})
+        rates_cache = exchange.load_rates()
         self.last_check_at = now_iso(config.app.timezone)
         dashboard = self._build_dashboard(config, exchange, rates_cache, today)
         self.database.cleanup_renewals(collect_active_cycle_keys(dashboard), config.subscriptions)
-        if config.app.notify_url and local_now(config.app.timezone).strftime("%H:%M") >= config.app.reminder_time:
-            self.send_due_notifications(config, dashboard)
+        if (
+            config.app.notify_url
+            and local_now(config.app.timezone).strftime("%H:%M") >= config.app.reminder_time
+        ):
+            try:
+                self.send_due_notifications(config, dashboard)
+            except Exception:
+                logger.exception("Reminder task failed")
+        # Reminder delivery takes priority; exchange outages cannot block it.
+        for task in (
+            lambda: exchange.sync_supported_currencies(today),
+            lambda: exchange.sync_once_per_day(
+                today, {subscription.currency for subscription in config.subscriptions}
+            ),
+        ):
+            try:
+                task()
+            except Exception:
+                logger.exception("Exchange task failed")
         return dashboard
 
     def get_dashboard(self, config=None) -> dict:
         config = config or self.database.get_config()
         exchange = ExchangeService(self.database, config.app.timezone, config.app.notify_url)
-        return self._build_dashboard(config, exchange, exchange.load_rates(), today_in_timezone(config.app.timezone))
+        return self._build_dashboard(
+            config, exchange, exchange.load_rates(), today_in_timezone(config.app.timezone)
+        )
 
-    def _build_dashboard(self, config, exchange: ExchangeService, rates_cache: dict, today: date) -> dict:
-        return build_dashboard(config, rates_cache, exchange.amount_to_cny, today, self.last_check_at, self.database.load_renewals())
+    def _build_dashboard(
+        self, config, exchange: ExchangeService, rates_cache: dict, today: date
+    ) -> dict:
+        return build_dashboard(
+            config,
+            rates_cache,
+            exchange.amount_to_cny,
+            today,
+            self.last_check_at,
+            self.database.load_renewals(),
+        )
 
     def send_due_notifications(self, config, dashboard: dict) -> None:
-        log_data = self.database.read_state("notification_log", {"notifications": []})
-        active_keys = collect_active_cycle_keys(dashboard)
-        notifications = [item for item in log_data.get("notifications", []) if isinstance(item, dict) and item.get("dedupe_key") in active_keys]
-        if notifications != log_data.get("notifications", []):
-            self.database.write_state("notification_log", {"notifications": notifications})
-        sent_keys = {item["dedupe_key"] for item in notifications}
         for group in dashboard["category_groups"]:
             for item in group["subscription_items"]:
                 if self.stop_event.is_set():
@@ -107,20 +128,43 @@ class Scheduler:
                 latest = self.database.get_config()
                 if latest.app != config.app:
                     return
-                current = next((subscription for subscription in latest.subscriptions if subscription.id == item["subscription_id"]), None)
+                current = next(
+                    (
+                        subscription
+                        for subscription in latest.subscriptions
+                        if subscription.id == item["subscription_id"]
+                    ),
+                    None,
+                )
                 if current is None or not current.notify_enabled:
                     continue
                 # Do not send a stale snapshot after an edit changes its contents or billing anchor.
-                if any(getattr(current, key) != item[key] for key in ("name", "category", "billing_cycle", "payment_date", "currency")) or round(current.amount, 2) != item["amount"]:
+                if (
+                    any(
+                        getattr(current, key) != item[key]
+                        for key in ("name", "category", "billing_cycle", "payment_date", "currency")
+                    )
+                    or round(current.amount, 2) != item["amount"]
+                ):
                     continue
-                dedupe_key = f"{item['subscription_id']}:{item['payment_date']}:{item['renewal_date']}"
-                if dedupe_key in sent_keys or is_cycle_renewed(self.database.load_renewals(), item["subscription_id"], item["payment_date"], item["renewal_date"]):
+                dedupe_key = cycle_key(
+                    item["subscription_id"], item["payment_date"], item["renewal_date"]
+                )
+                if is_cycle_renewed(
+                    self.database.load_renewals(),
+                    item["subscription_id"],
+                    item["payment_date"],
+                    item["renewal_date"],
+                ):
                     continue
                 body = f"{item['name']} 将于 {item['renewal_date']} 续费，剩余 {item['days_left']} 天，费用 {item['currency']} {item['amount']:.2f}"
                 if item["amount_cny"] is not None:
                     body += f"（约 ¥{item['amount_cny']:.2f}）"
-                if send_bark_notification(config.app.notify_url, "订阅续费提醒", body):
-                    notifications.append({"dedupe_key": dedupe_key, "subscription_id": item["subscription_id"], "payment_date": item["payment_date"], "renewal_date": item["renewal_date"], "sent_at": now_iso(config.app.timezone)})
-                    sent_keys.add(dedupe_key)
-                    # Persist each success so a later failure cannot resend earlier messages.
-                    self.database.write_state("notification_log", {"notifications": notifications})
+                if not self.database.claim_notification(dedupe_key):
+                    continue
+                try:
+                    success = send_bark_notification(config.app.notify_url, "订阅续费提醒", body)
+                except Exception:
+                    logger.exception("Notification delivery failed")
+                    success = False
+                self.database.finish_notification(dedupe_key, success)

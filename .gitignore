@@ -10,3 +10,5 @@ frontend/test-results/
 frontend/playwright-report/
 *.tsbuildinfo
 docker-compose.yml
+
+.venv/

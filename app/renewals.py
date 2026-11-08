@@ -5,18 +5,20 @@ from __future__ import annotations
 from typing import Any
 
 
-def _cycle_key(subscription_id: str, payment_date: str, renewal_date: str) -> str:
+def cycle_key(subscription_id: str, payment_date: str, renewal_date: str) -> str:
     return f"{subscription_id}:{payment_date}:{renewal_date}"
 
 
 def is_cycle_renewed(
     state: dict[str, Any], subscription_id: str, payment_date: str, renewal_date: str
 ) -> bool:
-    return bool(state.get(_cycle_key(subscription_id, payment_date, renewal_date)))
+    return bool(state.get(cycle_key(subscription_id, payment_date, renewal_date)))
 
 
-def build_button_state(days_left: int, cycle_renewed: bool, remind_before_days: int) -> dict[str, Any]:
-    """Return the status chip and menu action data rendered by the frontend."""
+def build_button_state(
+    days_left: int, cycle_renewed: bool, remind_before_days: int
+) -> dict[str, Any]:
+    """Return the renewal status and available action for the current billing period."""
     if cycle_renewed:
         status_kind, status_label = "renewed", "已付费"
         action_label, action_intent = "撤销已续费", "unmark"

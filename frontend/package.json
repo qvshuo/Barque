@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && node build.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test"
   },
   "dependencies": {
+    "@base-ui/react": "1.9.0",
     "class-variance-authority": "0.7.1",
     "cn": "0.5.2",
     "date-fns": "4.4.0",
     "lucide-react": "1.70.0",
-    "radix-ui": "1.8.1",
     "react": "19.3.1",
     "react-day-picker": "10.0.2",
     "react-dom": "19.3.1",
@@ -20,6 +21,7 @@
     "sonner": "2.0.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.0",
     "@tailwindcss/cli": "4.3.5",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",

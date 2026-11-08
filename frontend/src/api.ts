@@ -70,18 +70,20 @@ export function money(value: number, currency = "CNY", compact = false) {
 export const formatTime = (value: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN") : "尚未更新";
 
-export async function api<T>(
-  path: string,
-  method = "GET",
-  data?: unknown,
-): Promise<T> {
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
     signal: AbortSignal.timeout(30_000),
     headers:
-      method === "GET"
-        ? {}
-        : { "Content-Type": "application/json", "X-Barque-Request": "1" },
+      method === "GET" ? {} : { "Content-Type": "application/json", "X-Barque-Request": "1" },
     body: method === "GET" ? undefined : JSON.stringify(data ?? {}),
   }).catch((error: Error) => {
     if (error.name === "TimeoutError") throw new Error("请求超时，请刷新页面确认后重试");
@@ -93,6 +95,5 @@ export async function api<T>(
     const error = await response.json().catch(() => null);
     throw new Error(error?.error || `请求失败 (${response.status})`);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json();
+  return response.status === 204 ? (undefined as T) : response.json();
 }

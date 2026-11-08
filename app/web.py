@@ -1,22 +1,29 @@
 """Same-origin JSON API and the compiled React application."""
 
+import os
 from dataclasses import asdict
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-from app.auth import Authentication, COOKIE_NAME, SESSION_SECONDS
+from app.auth import COOKIE_NAME, SESSION_SECONDS, Authentication
 from app.bark import send_bark_notification
-from app.database import Database, SubscriptionConflictError
-from app.renewals import build_toggle_response
+from app.config import validate_settings
+from app.database import Database, SubscriptionConflictError, SubscriptionNotFoundError
+from app.renewals import build_toggle_response, cycle_key
 from app.scheduler import Scheduler
 from app.subscriptions import find_subscription_item
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
-def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | None = None, initial_password: str | None = None) -> Flask:
+def create_app(
+    database: Database,
+    scheduler: Scheduler,
+    frontend_dist: Path | None = None,
+    initial_password: str | None = None,
+) -> Flask:
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
     dist = frontend_dist or FRONTEND_DIST
@@ -36,7 +43,9 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
     def require_password():
         # The shell and its assets only render the password form before login.
         public = {"index", "assets", "icons", "auth_status", "login"}
-        if request.endpoint not in public and not auth.authenticated(request.cookies.get(COOKIE_NAME)):
+        if request.endpoint not in public and not auth.authenticated(
+            request.cookies.get(COOKIE_NAME)
+        ):
             return jsonify(error="请先输入访问密码"), 401
 
     @app.errorhandler(ValueError)
@@ -47,7 +56,7 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
     def subscription_conflict(error):
         return jsonify(error=str(error)), 409
 
-    @app.errorhandler(KeyError)
+    @app.errorhandler(SubscriptionNotFoundError)
     def missing(_error):
         return jsonify(error="订阅不存在，请刷新后重试"), 404
 
@@ -63,7 +72,15 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
 
     def session_response(token):
         response = jsonify(authenticated=True)
-        response.set_cookie(COOKIE_NAME, token, max_age=SESSION_SECONDS, httponly=True, secure=request.is_secure, samesite="Strict", path="/")
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            max_age=SESSION_SECONDS,
+            httponly=True,
+            secure=request.is_secure or os.environ.get("BARQUE_SECURE_COOKIE") == "1",
+            samesite="Strict",
+            path="/",
+        )
         return response
 
     @app.get("/api/auth/session")
@@ -87,7 +104,13 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
         body()
         auth.logout(request.cookies.get(COOKIE_NAME))
         response = jsonify(authenticated=False)
-        response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="Strict")
+        response.delete_cookie(
+            COOKIE_NAME,
+            path="/",
+            httponly=True,
+            secure=request.is_secure or os.environ.get("BARQUE_SECURE_COOKIE") == "1",
+            samesite="Strict",
+        )
         return response
 
     @app.get("/api/dashboard")
@@ -103,7 +126,12 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
 
     @app.get("/api/currencies")
     def currencies():
-        return jsonify([{"code": code, "name": name} for code, name in sorted(database.supported_currencies().items())])
+        return jsonify(
+            [
+                {"code": code, "name": name}
+                for code, name in sorted(database.supported_currencies().items())
+            ]
+        )
 
     @app.get("/api/settings")
     def settings():
@@ -128,7 +156,9 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
 
     @app.get("/api/subscriptions")
     def subscriptions():
-        return jsonify([asdict(subscription) for subscription in database.get_config().subscriptions])
+        return jsonify(
+            [asdict(subscription) for subscription in database.get_config().subscriptions]
+        )
 
     @app.get("/api/subscription-groups")
     def subscription_groups():
@@ -171,23 +201,41 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
     @app.put("/api/renewal-status")
     def renewal_status():
         data = body()
-        subscription_id, payment_date, renewal_date = (data.get(key) for key in ("subscription_id", "payment_date", "renewal_date"))
-        if not all(isinstance(value, str) and value for value in (subscription_id, payment_date, renewal_date)) or type(data.get("renewed")) is not bool:
+        subscription_id, payment_date, renewal_date = (
+            data.get(key) for key in ("subscription_id", "payment_date", "renewal_date")
+        )
+        if (
+            not all(
+                isinstance(value, str) and value
+                for value in (subscription_id, payment_date, renewal_date)
+            )
+            or type(data.get("renewed")) is not bool
+        ):
             raise ValueError("缺少有效的订阅、账期或续费状态")
         config = database.get_config()
-        item = find_subscription_item(scheduler.get_dashboard(config), subscription_id, payment_date, renewal_date)
+        item = find_subscription_item(
+            scheduler.get_dashboard(config), subscription_id, payment_date, renewal_date
+        )
         if item is None:
             raise ValueError("该账期已失效，请刷新页面")
-        database.set_renewed(f"{subscription_id}:{payment_date}:{renewal_date}", data["renewed"])
-        return jsonify(build_toggle_response(item["days_left"], data["renewed"], config.app.remind_before_days))
+        database.set_renewed(
+            cycle_key(subscription_id, payment_date, renewal_date), data["renewed"]
+        )
+        return jsonify(
+            build_toggle_response(item["days_left"], data["renewed"], config.app.remind_before_days)
+        )
 
     @app.post("/api/test-notification")
     def test_notification():
-        body()
-        config = database.get_config()
-        if not config.app.notify_url:
-            raise ValueError("请先保存 Bark 推送地址")
-        if not send_bark_notification(config.app.notify_url, "Barque 测试通知", "通知配置成功，订阅续费提醒将在到期前发送。"):
+        data = body()
+        settings = validate_settings(
+            {**asdict(database.get_config().app), "notify_url": data.get("notify_url", "")}
+        )
+        if not settings.notify_url:
+            raise ValueError("请输入 Bark 推送地址")
+        if not send_bark_notification(
+            settings.notify_url, "Barque 测试通知", "通知配置成功，订阅续费提醒将在到期前发送。"
+        ):
             return jsonify(error="发送失败，请检查 Bark 地址和网络连接"), 502
         return jsonify(message="测试通知已发送")
 
@@ -209,10 +257,16 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
             and request.accept_encodings["gzip"] > 0
             and (dist / "assets" / (filename + ".gz")).is_file()
         )
-        response = send_from_directory(dist / "assets", filename + ".gz" if compressed else filename, max_age=31536000)
+        response = send_from_directory(
+            dist / "assets", filename + ".gz" if compressed else filename, max_age=31536000
+        )
         if compressed:
             response.headers["Content-Encoding"] = "gzip"
-            response.headers["Content-Type"] = "text/css; charset=utf-8" if filename.endswith(".css") else "text/javascript; charset=utf-8"
+            response.headers["Content-Type"] = (
+                "text/css; charset=utf-8"
+                if filename.endswith(".css")
+                else "text/javascript; charset=utf-8"
+            )
         response.vary.add("Accept-Encoding")
         response.cache_control.immutable = True
         return response
@@ -228,6 +282,14 @@ def create_app(database: Database, scheduler: Scheduler, frontend_dist: Path | N
         if request.endpoint not in {"assets", "icons"}:
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        )
+        if request.is_secure:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response
 
     return app

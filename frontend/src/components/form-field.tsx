@@ -16,7 +16,11 @@ export function Field({
     <div className="space-y-2">
       <Label htmlFor={htmlFor}>
         {label}
-        {required && <span className="text-destructive" aria-hidden="true">*</span>}
+        {required && (
+          <span className="text-destructive" aria-hidden="true">
+            *
+          </span>
+        )}
       </Label>
       {children}
     </div>

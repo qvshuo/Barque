@@ -44,14 +44,14 @@ const html = (await readFile("index.html", "utf8"))
     '<script type="module" src="/src/main.tsx"></script>',
     `<script type="module" src="${entry}"></script>`,
   )
-  .replace(
-    "</head>",
-    `<link rel="stylesheet" href="/assets/${cssName}" /></head>`,
-  );
+  .replace("</head>", `<link rel="stylesheet" href="/assets/${cssName}" /></head>`);
 await writeFile("dist/index.html", html);
 for (const name of await readdir("dist/assets")) {
   if (/\.(js|css)$/.test(name)) {
-    await writeFile(`dist/assets/${name}.gz`, gzipSync(await readFile(`dist/assets/${name}`), { level: 9 }));
+    await writeFile(
+      `dist/assets/${name}.gz`,
+      gzipSync(await readFile(`dist/assets/${name}`), { level: 9 }),
+    );
   }
 }
 console.log("Built frontend/dist with esbuild and Tailwind CSS.");

@@ -7,7 +7,6 @@ from urllib.parse import quote
 
 import httpx
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -16,7 +15,10 @@ def send_bark_notification(notify_url: str, title: str, body: str) -> bool:
     try:
         response = httpx.get(url, timeout=10)
         response.raise_for_status()
-    except httpx.HTTPError:
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("code") != 200:
+            raise ValueError("Bark rejected notification")
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError):
         logger.warning("Bark notification failed")
         return False
     logger.info("Bark notification sent: %s", title)

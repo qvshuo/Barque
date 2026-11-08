@@ -13,3 +13,5 @@ frontend/test-results/
 frontend/playwright-report/
 tests/
 docker-compose.yml
+
+.venv/

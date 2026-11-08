@@ -51,7 +51,10 @@ def validate_settings(data: dict) -> AppConfig:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ValueError("请输入有效的 IANA 时区，例如 Asia/Shanghai") from exc
-    for key, minimum, maximum in (("check_interval_seconds", 10, 86400), ("remind_before_days", 0, 365)):
+    for key, minimum, maximum in (
+        ("check_interval_seconds", 10, 86400),
+        ("remind_before_days", 0, 365),
+    ):
         value = data.get(key)
         if type(value) is not int or not minimum <= value <= maximum:
             raise ValueError(f"{key} 必须是 {minimum} 至 {maximum} 之间的整数")
@@ -61,16 +64,41 @@ def validate_settings(data: dict) -> AppConfig:
     notify_url = notify_url.strip()
     if notify_url:
         parsed = urlparse(notify_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or any(char.isspace() for char in notify_url):
-            raise ValueError("Bark 地址必须是有效的 HTTP(S) 地址，例如 https://api.day.app/你的密钥")
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or any(char.isspace() for char in notify_url)
+        ):
+            raise ValueError(
+                "Bark 地址必须是有效的 HTTP(S) 地址，例如 https://api.day.app/你的密钥"
+            )
         try:
             parsed.port
         except ValueError as exc:
             raise ValueError("Bark 地址端口无效") from exc
     reminder_time = data.get("reminder_time", "09:00")
-    if not isinstance(reminder_time, str) or not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", reminder_time):
+    if not isinstance(reminder_time, str) or not re.fullmatch(
+        r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", reminder_time
+    ):
         raise ValueError("提醒时间须为有效的 HH:MM 时间")
-    return AppConfig(timezone, data["check_interval_seconds"], data["remind_before_days"], notify_url, reminder_time)
+    return AppConfig(
+        timezone,
+        data["check_interval_seconds"],
+        data["remind_before_days"],
+        notify_url,
+        reminder_time,
+    )
+
+
+def validate_subscription_id(value) -> str:
+    # Earlier JSON exports use 16-character IDs; current IDs use UUID hex.
+    if not isinstance(value, str) or not re.fullmatch(r"(?:[0-9a-f]{16}|[0-9a-f]{32})", value):
+        raise ValueError("订阅 ID 无效")
+    return value
 
 
 def validate_subscription(data: dict, subscription_id: str = "") -> SubscriptionConfig:
@@ -94,4 +122,13 @@ def validate_subscription(data: dict, subscription_id: str = "") -> Subscription
     notify_enabled = data.get("notify_enabled", True)
     if type(notify_enabled) is not bool:
         raise ValueError("通知开关必须为布尔值")
-    return SubscriptionConfig(name, category, billing_cycle, payment_date, float(amount), currency, notify_enabled, subscription_id)
+    return SubscriptionConfig(
+        name,
+        category,
+        billing_cycle,
+        payment_date,
+        float(amount),
+        currency,
+        notify_enabled,
+        subscription_id,
+    )

@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useState, useRef, type ReactNode } from "react";
 import { Bell, BellOff, Search, Check } from "lucide-react";
 import { toast } from "sonner";
-import { SpendingChart } from "./SpendingChart";
 import {
-  api,
-  cycleLabels,
-  formatTime,
-  money,
-  type Dashboard,
-  type SubscriptionItem,
-} from "./api";
+  SpendingChart,
+  OTHER_CATEGORIES,
+  rankedCategories,
+  type CategoryFilter,
+} from "./SpendingChart";
+import { api, cycleLabels, formatTime, money, type Dashboard, type SubscriptionItem } from "./api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +37,13 @@ function progressPresentation(item: SubscriptionItem) {
   const state = paid ? "已付费，不再提醒" : today ? "今天到期" : soon ? "即将到期" : "正常账期";
   return {
     value: today ? 100 : item.progress_percent,
-    indicatorClassName: paid ? "bg-[var(--progress-paid)]" : today ? "bg-[var(--progress-urgent)]" : soon ? "bg-[var(--progress-soon)]" : "bg-[var(--progress-normal)]",
+    indicatorClassName: paid
+      ? "bg-[var(--progress-paid)]"
+      : today
+        ? "bg-[var(--progress-urgent)]"
+        : soon
+          ? "bg-[var(--progress-soon)]"
+          : "bg-[var(--progress-normal)]",
     "aria-valuetext": `${state}；账期进度 ${today ? 100 : item.progress_percent}%`,
     title: state,
   };
@@ -60,9 +64,7 @@ export function EmptyState({
         <CardTitle>{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
-      {children && (
-        <CardContent className="flex justify-center">{children}</CardContent>
-      )}
+      {children && <CardContent className="flex justify-center">{children}</CardContent>}
     </Card>
   );
 }
@@ -72,7 +74,7 @@ export function SubscriptionsPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<string | null>(null);
+  const [category, setCategory] = useState<CategoryFilter>(null);
   const [pending, setPending] = useState<string | null>(null);
   const requestId = useRef(0);
   const load = useCallback(async () => {
@@ -124,18 +126,31 @@ export function SubscriptionsPage() {
     }
   }
   const summary = dashboard?.summary;
+  const topCategories = new Set(
+    rankedCategories(dashboard?.category_groups ?? [])
+      .slice(0, 5)
+      .map((group) => group.category_name),
+  );
+  const query = search.trim().toLowerCase();
   const groups = dashboard?.category_groups
-    .filter((group) => category === null || category === group.category_name)
+    .filter(
+      (group) =>
+        category === null ||
+        (category === OTHER_CATEGORIES
+          ? !topCategories.has(group.category_name)
+          : category === group.category_name),
+    )
     .map((group) => {
       const items = group.subscription_items.filter((item) =>
-        `${item.name} ${item.category}`
-          .toLowerCase()
-          .includes(search.trim().toLowerCase()),
+        `${item.name} ${item.category}`.toLowerCase().includes(query),
       );
       return {
         ...group,
         subscription_items: items,
-        yearly_estimated_cny: items.reduce((total, item) => total + (item.yearly_estimated_cny ?? 0), 0),
+        yearly_estimated_cny: items.reduce(
+          (total, item) => total + (item.yearly_estimated_cny ?? 0),
+          0,
+        ),
       };
     })
     .filter((group) => group.subscription_items.length);
@@ -163,28 +178,44 @@ export function SubscriptionsPage() {
         summary && (
           <Card>
             <CardContent className="grid grid-cols-2 gap-6 px-4 sm:px-6 lg:grid-cols-4">
-            {[
-              ["订阅总数", String(summary.total_subscription_count)],
-              ["即将到期", String(summary.expiring_subscription_count)],
-              ["本月待付", money(summary.monthly_due_cny, "CNY", true), money(summary.monthly_due_cny)],
-              ["预计年支出", money(summary.yearly_estimated_cny, "CNY", true), money(summary.yearly_estimated_cny)],
-            ].map(([label, value, fullValue = value]) => (
-              <div key={label} className="min-w-0 space-y-2">
+              {[
+                ["订阅总数", String(summary.total_subscription_count)],
+                ["即将到期", String(summary.expiring_subscription_count)],
+                [
+                  "本月待付",
+                  money(summary.monthly_due_cny, "CNY", true),
+                  money(summary.monthly_due_cny),
+                ],
+                [
+                  "预计年支出",
+                  money(summary.yearly_estimated_cny, "CNY", true),
+                  money(summary.yearly_estimated_cny),
+                ],
+              ].map(([label, value, fullValue = value]) => (
+                <div key={label} className="min-w-0 space-y-2">
                   <CardDescription>{label}</CardDescription>
-                  <CardTitle className="text-xl tabular-nums sm:text-2xl" title={fullValue} aria-label={fullValue}>
+                  <CardTitle
+                    className="text-xl tabular-nums sm:text-2xl"
+                    title={fullValue}
+                    aria-label={fullValue}
+                  >
                     {value}
                   </CardTitle>
-              </div>
-            ))}
+                </div>
+              ))}
             </CardContent>
-            {dashboard && <SpendingChart groups={dashboard.category_groups} selected={category} onSelect={setCategory} />}
+            {dashboard && (
+              <SpendingChart
+                groups={dashboard.category_groups}
+                selected={category}
+                onSelect={setCategory}
+              />
+            )}
           </Card>
         )
       )}
       {dashboard &&
-        (summary!.total_subscription_count === 0 &&
-        !search &&
-        category === null ? (
+        (summary!.total_subscription_count === 0 && !search && category === null ? (
           <EmptyState title="暂无订阅" />
         ) : (
           <>
@@ -200,23 +231,43 @@ export function SubscriptionsPage() {
                 />
               </div>
               <Select
-                value={category === null ? "all" : `category:${category}`}
-                onValueChange={value => setCategory(value === "all" ? null : value.slice("category:".length))}
+                items={[
+                  { value: "all", label: "全部分类" },
+                  { value: "others", label: "其他" },
+                  ...dashboard.category_groups.map((group) => ({
+                    value: `category:${group.category_name}`,
+                    label: group.category_name,
+                  })),
+                ]}
+                value={
+                  category === null
+                    ? "all"
+                    : category === OTHER_CATEGORIES
+                      ? "others"
+                      : `category:${category}`
+                }
+                onValueChange={(value) =>
+                  setCategory(
+                    !value || value === "all"
+                      ? null
+                      : value === "others"
+                        ? OTHER_CATEGORIES
+                        : value.slice("category:".length),
+                  )
+                }
               >
                 <SelectTrigger className="w-full sm:w-44" aria-label="筛选分类">
                   <SelectValue placeholder="全部分类" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">全部分类</SelectItem>
-                  {category !== null &&
+                  {category === OTHER_CATEGORIES && <SelectItem value="others">其他</SelectItem>}
+                  {typeof category === "string" &&
                     !dashboard.category_groups.some(
                       (group) => group.category_name === category,
                     ) && <SelectItem value={`category:${category}`}>{category}</SelectItem>}
                   {dashboard.category_groups.map((group) => (
-                    <SelectItem
-                      key={group.category_name}
-                      value={`category:${group.category_name}`}
-                    >
+                    <SelectItem key={group.category_name} value={`category:${group.category_name}`}>
                       {group.category_name}
                     </SelectItem>
                   ))}
@@ -224,10 +275,7 @@ export function SubscriptionsPage() {
               </Select>
             </div>
             {!groups?.length && (
-              <EmptyState
-                title="没有匹配的订阅"
-                description="试试其他关键词或分类。"
-              />
+              <EmptyState title="没有匹配的订阅" description="试试其他关键词或分类。" />
             )}
             {groups?.map((group) => (
               <section
@@ -240,7 +288,8 @@ export function SubscriptionsPage() {
                     {group.category_name}
                   </h2>
                   <span className="ml-auto max-w-full wrap-anywhere text-xs tabular-nums text-muted-foreground">
-                    {group.subscription_items.length} 个订阅，约 {money(group.yearly_estimated_cny)} / 年
+                    {group.subscription_items.length} 个订阅，约 {money(group.yearly_estimated_cny)}{" "}
+                    / 年
                   </span>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
@@ -251,8 +300,17 @@ export function SubscriptionsPage() {
                           <CardTitle className="min-w-0 text-base font-medium">
                             {item.name}
                           </CardTitle>
-                          <span role="img" className="inline-flex size-8 shrink-0 items-center justify-end text-muted-foreground" aria-label={`${item.name}：续费提醒已${item.notify_enabled ? "开启" : "关闭"}`} title={`续费提醒已${item.notify_enabled ? "开启" : "关闭"}`}>
-                            {item.notify_enabled ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+                          <span
+                            role="img"
+                            className="inline-flex size-8 shrink-0 items-center justify-end text-muted-foreground"
+                            aria-label={`${item.name}：续费提醒已${item.notify_enabled ? "开启" : "关闭"}`}
+                            title={`续费提醒已${item.notify_enabled ? "开启" : "关闭"}`}
+                          >
+                            {item.notify_enabled ? (
+                              <Bell className="size-4" />
+                            ) : (
+                              <BellOff className="size-4" />
+                            )}
                           </span>
                         </div>
                       </CardHeader>
@@ -262,8 +320,7 @@ export function SubscriptionsPage() {
                             {money(item.amount, item.currency)}
                           </span>
                           <span className="ml-2 inline-block whitespace-nowrap text-xs font-normal text-muted-foreground">
-                            /{" "}
-                            {cycleLabels[item.billing_cycle].replace("每", "")}
+                            / {cycleLabels[item.billing_cycle].replace("每", "")}
                           </span>
                         </div>
                         <div className="space-y-2">
@@ -272,9 +329,7 @@ export function SubscriptionsPage() {
                               {item.renewal_date}
                             </span>
                             <span className="text-sm font-medium tabular-nums text-foreground">
-                              {item.days_left === 0
-                                ? "今天到期"
-                                : `${item.days_left} 天后到期`}
+                              {item.days_left === 0 ? "今天到期" : `${item.days_left} 天后到期`}
                             </span>
                           </div>
                           <Progress
@@ -285,9 +340,13 @@ export function SubscriptionsPage() {
                         </div>
                       </CardContent>
                       <CardFooter className="mt-auto flex-wrap justify-between gap-4 text-xs font-normal tabular-nums text-muted-foreground">
-                        {item.currency !== "CNY" && <span>
-                          {item.amount_cny === null ? "汇率待更新" : `约 ${money(item.amount_cny)}`}
-                        </span>}
+                        {item.currency !== "CNY" && (
+                          <span>
+                            {item.amount_cny === null
+                              ? "汇率待更新"
+                              : `约 ${money(item.amount_cny)}`}
+                          </span>
+                        )}
                         <Button
                           variant="link"
                           className="ml-auto h-auto justify-end gap-1 px-0 py-1 has-[>svg]:px-0 text-xs font-normal text-muted-foreground hover:text-foreground hover:no-underline"
@@ -295,10 +354,18 @@ export function SubscriptionsPage() {
                           aria-pressed={item.button_state.status_kind === "renewed"}
                           aria-busy={pending === item.subscription_id}
                           disabled={pending !== null}
-                          title={item.button_state.status_kind === "renewed" ? "点击撤销本期续费" : "标记后，本期不再提醒"}
-                          onClick={() => void mark(item, item.button_state.status_kind !== "renewed")}
+                          title={
+                            item.button_state.status_kind === "renewed"
+                              ? "点击撤销本期续费"
+                              : "标记后，本期不再提醒"
+                          }
+                          onClick={() =>
+                            void mark(item, item.button_state.status_kind !== "renewed")
+                          }
                         >
-                          {item.button_state.status_kind === "renewed" && <Check className="size-3.5" />}
+                          {item.button_state.status_kind === "renewed" && (
+                            <Check className="size-3.5" />
+                          )}
                           {item.button_state.status_kind === "renewed" ? "已付费" : "标记为已续费"}
                         </Button>
                       </CardFooter>
@@ -320,7 +387,6 @@ export function SubscriptionsPage() {
             : ""}
         </p>
       )}
-
     </>
   );
 }

@@ -15,15 +15,28 @@ from app.web import create_app
 
 
 def main() -> None:
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     # HTTP client logs can contain Bark device keys in request URLs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    data_dir = Path(os.environ.get("BARQUE_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
+    data_dir = Path(
+        os.environ.get("BARQUE_DATA_DIR", Path(__file__).resolve().parent.parent / "data")
+    )
     database = Database(data_dir)
     scheduler = Scheduler(database)
     app = create_app(database, scheduler, initial_password=os.environ.get("BARQUE_PASSWORD"))
-    server = create_server(app, host="0.0.0.0", port=8080, threads=8)
+    trust_proxy = os.environ.get("BARQUE_TRUST_PROXY") == "1"
+    server = create_server(
+        app,
+        host="0.0.0.0",
+        port=8080,
+        threads=8,
+        trusted_proxy="*" if trust_proxy else None,
+        trusted_proxy_headers={"x-forwarded-proto"} if trust_proxy else set(),
+    )
 
     def shutdown(*_args):
         raise SystemExit(0)

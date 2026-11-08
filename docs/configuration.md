@@ -18,7 +18,7 @@
 | --- | --- |
 | 名称、Logo、外观 | Barque；内置 Logo；明暗始终跟随系统 |
 | 网页自动刷新 | 前台每 60 秒；返回前台时也刷新 |
-| 汇率源与支持币种 | Frankfurter v1；支持币种每天同步，失败时保留上次列表或内置列表；下拉选项按币种代码排序 |
+| 汇率源与支持币种 | Frankfurter v1；支持币种每天同步，失败时保留上次列表或内置列表；输入建议按币种代码排序 |
 | 汇率更新频率 | 每个配置时区的自然日成功更新一次；失败或缺少所需币种时，在下一轮后台检查重试 |
 | 统计本位币 | CNY，月度、年度统计和外币折算均使用人民币 |
 | 通知去重 | 每个订阅、每个账期成功提醒一次；关闭提醒或标记已续费后不发送；下一账期恢复检查 |
@@ -33,3 +33,60 @@
 访问密码由 Compose 的 `BARQUE_PASSWORD` 提供，不属于网页设置。服务端数据目录可通过 `BARQUE_DATA_DIR` 指定，日志级别可通过 `LOG_LEVEL` 指定；一般部署使用默认值即可。
 
 配置备份包含应用设置、订阅、空分类及分类顺序；旧版未包含分类列表的备份仍可导入，分类从订阅中恢复。
+
+## 数据与运行状态
+
+SQLite 是唯一正式数据源。设置、订阅、排序和版本冲突保护通过明确的业务方法访问；已续费标记及通知投递记录按独立账期保存。通用运行状态接口仅接受汇率缓存、币种目录。浏览器中的草稿在保存前不写入正式数据。
+
+币种格式只要求三个英文字母，与汇率源支持范围无关。币种输入框支持手动输入和目录建议。未知或暂无汇率的币种可以保存、导入，并保留原始金额和续费提醒；没有有效汇率时不计入人民币统计。
+
+后台仍只有一个线程，依次执行续费检查、通知投递、币种目录同步和汇率同步，各任务单独处理异常。提醒时间以配置时区为准，汇率网络故障不阻断提醒。
+
+## 通知恢复
+
+`notification_attempts` 记录账期键、`pending`（待发送）、`success`（成功）、`failed`（失败）、尝试次数、更新时间、重试时间及失败说明。发送前先提交待发送记录；成功收到 Bark 的 HTTP 成功响应和业务 `code=200` 后再标记成功。失败至少等待 60 秒，在后续符合提醒条件的后台轮次重试；异常退出留下的待发送记录至少等待 5 分钟再重试。已有成功通知在启动时一次性迁入统一记录表，之后成功记录按账期去重；关闭提醒、已续费或账期失效后不重试旧账期。
+
+Bark 已接收消息但响应丢失、或发送成功后本地写入失败时，重试仍可能造成重复投递。发送前持久化和等待窗口只能降低概率，不承诺绝对一次投递。
+
+Bark 测试按钮直接使用当前输入地址，无须保存；测试本身不会修改正式设置。
+
+## JSON 配置备份
+
+「备份与恢复」保留「导入」「导出」两个入口，仅处理 JSON 配置。格式仍为 `version: 1`，包含应用设置、订阅、空分类和分类顺序，保持原有导入兼容性；不包含已续费标记、通知记录、汇率缓存或会话。导入上限为 2 MB，覆盖前需要确认。
+
+## HTTPS 代理与容器权限
+
+直连 HTTP 默认不设置 Secure Cookie。HTTPS 终止于反向代理时，可设置 `BARQUE_TRUST_PROXY=1`，仅信任最近一层代理的 `X-Forwarded-Proto`；代理必须覆盖该头，并限制客户端绕过代理直连服务。也可设置 `BARQUE_SECURE_COOKIE=1` 强制 Secure Cookie。HTTPS 响应包含 HSTS，其他响应包含防嗅探、防嵌入、来源策略、权限策略及 CSP。
+
+容器使用固定 UID/GID `10001:10001` 运行。首次使用宿主机目录挂载，或升级旧的 root 容器时，先为数据目录设置写权限：
+
+```sh
+mkdir -p data
+sudo chown -R 10001:10001 data
+docker compose up -d --build
+```
+
+## 开发验证
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m unittest discover -s tests -v
+cd frontend
+npm ci
+npm run build
+npx playwright install chromium
+BARQUE_TEST_PYTHON=../.venv/bin/python npm test
+```
+
+浏览器测试启动临时数据库及本地测试服务，不启动调度线程，不向真实 Bark 发送消息。测试涵盖筛选、标记续费、Select 键盘与焦点、日期弹层、Switch、未保存更改、Bark 草稿测试和 JSON 配置导入导出。`BARQUE_TEST_URL` 可指定**隔离的测试实例**，`BARQUE_TEST_PASSWORD` 指定测试密码；测试会覆盖该实例的配置，不应指向日常使用的数据库。
+
+组件按 [shadcn/ui 官方 Base UI 实现](https://ui.shadcn.com/r/styles/base-nova/select.json)及[迁移规范](https://github.com/shadcn-ui/ui/blob/main/skills/migrate-radix-to-base/universal-patterns.md)迁移，保留现有样式。Calendar（react-day-picker）、图表（Recharts）和 Toast（Sonner）继续使用原来的第三方库。
+
+Python 格式与静态检查使用 Ruff，前端格式检查使用 Prettier，配置分别位于 `ruff.toml` 和 `.prettierrc.json`；它们仅作为开发工具，不加入容器运行依赖。前端类型检查同时检查未使用的局部变量和参数。
+
+```sh
+ruff check app tests
+ruff format --check app tests
+npx prettier --check 'frontend/src/**/*.{ts,tsx,css}' 'frontend/tests/**/*.ts' 'frontend/*.{json,ts,mjs}'
+```

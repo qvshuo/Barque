@@ -27,19 +27,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setError("");
     };
     window.addEventListener("barque:unauthorized", unauthorized);
-    return () =>
-      window.removeEventListener("barque:unauthorized", unauthorized);
+    return () => window.removeEventListener("barque:unauthorized", unauthorized);
   }, []);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     setBusy(true);
     try {
-      const result = await api<AuthStatus>(
-        "/auth/login",
-        "POST",
-        { password },
-      );
+      const result = await api<AuthStatus>("/auth/login", "POST", { password });
       setPassword("");
       setStatus(result);
     } catch (err) {
@@ -55,22 +50,31 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }, [status]);
   if (status?.authenticated) return children;
-  if (!status) return (
-    <main className="flex min-h-dvh items-center justify-center px-4 py-8">
-      {error && (
-        <div className="w-full max-w-xs space-y-3">
-          <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
-          <Button type="button" className="w-full" onClick={() => { setError(""); void load(); }}>重试</Button>
-        </div>
-      )}
-    </main>
-  );
+  if (!status)
+    return (
+      <main className="flex min-h-dvh items-center justify-center px-4 py-8">
+        {error && (
+          <div className="w-full max-w-xs space-y-3">
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                setError("");
+                void load();
+              }}
+            >
+              重试
+            </Button>
+          </div>
+        )}
+      </main>
+    );
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-8">
-      <form
-        className="w-full max-w-xs space-y-3"
-        onSubmit={(event) => void submit(event)}
-      >
+      <form className="w-full max-w-xs space-y-3" onSubmit={(event) => void submit(event)}>
         <Input
           id="access-password"
           name="password"
@@ -90,11 +94,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <Button
-          type="submit"
-          className="w-full"
-          disabled={busy}
-        >
+        <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "登录中…" : "登录"}
         </Button>
       </form>

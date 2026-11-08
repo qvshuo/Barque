@@ -25,13 +25,19 @@ class Authentication:
         self.failures = deque(maxlen=10)
         self.lock = threading.Lock()
         with database.connect() as connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, expires_at REAL NOT NULL)")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, expires_at REAL NOT NULL)"
+            )
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT value FROM state WHERE key = 'access'").fetchone()
             current_hash = json.loads(row[0]).get("password_hash") if row else None
             # Compose is authoritative; keep sessions only while its password is unchanged.
             if not current_hash or not check_password_hash(current_hash, initial_password):
-                database._write_state(connection, "access", {"password_hash": generate_password_hash(initial_password)})
+                database._write_state(
+                    connection,
+                    "access",
+                    {"password_hash": generate_password_hash(initial_password)},
+                )
                 connection.execute("DELETE FROM sessions")
 
     def login(self, password) -> str | None:
@@ -46,7 +52,12 @@ class Authentication:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT value FROM state WHERE key = 'access'").fetchone()
             password_hash = json.loads(row[0])["password_hash"] if row else None
-            if not isinstance(password, str) or len(password) > 256 or not password_hash or not check_password_hash(password_hash, password):
+            if (
+                not isinstance(password, str)
+                or len(password) > 256
+                or not password_hash
+                or not check_password_hash(password_hash, password)
+            ):
                 return None
             token = self._create_session(connection)
         with self.lock:
@@ -56,7 +67,10 @@ class Authentication:
     def _create_session(self, connection) -> str:
         token = secrets.token_urlsafe(32)
         connection.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
-        connection.execute("INSERT INTO sessions VALUES (?, ?)", (self.token_hash(token), time.time() + SESSION_SECONDS))
+        connection.execute(
+            "INSERT INTO sessions VALUES (?, ?)",
+            (self.token_hash(token), time.time() + SESSION_SECONDS),
+        )
         return token
 
     @staticmethod
@@ -67,8 +81,16 @@ class Authentication:
         if not token or len(token) > 128:
             return False
         with self.database.connect() as connection:
-            return connection.execute("SELECT 1 FROM sessions WHERE token_hash = ? AND expires_at > ?", (self.token_hash(token), time.time())).fetchone() is not None
+            return (
+                connection.execute(
+                    "SELECT 1 FROM sessions WHERE token_hash = ? AND expires_at > ?",
+                    (self.token_hash(token), time.time()),
+                ).fetchone()
+                is not None
+            )
 
     def logout(self, token: str):
         with self.database.connect() as connection:
-            connection.execute("DELETE FROM sessions WHERE token_hash = ?", (self.token_hash(token),))
+            connection.execute(
+                "DELETE FROM sessions WHERE token_hash = ?", (self.token_hash(token),)
+            )

@@ -12,7 +12,11 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "types": ["node"],
-    "paths": { "@/*": ["./src/*"] }
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
-  "include": ["src"]
+  "include": ["src", "tests", "playwright.config.ts"]
 }
