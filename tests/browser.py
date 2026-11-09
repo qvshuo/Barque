@@ -106,6 +106,58 @@ class BrowserTests(unittest.TestCase):
         page.get_by_role("searchbox").fill("无匹配")
         expect(page.get_by_text("没有匹配的订阅", exact=True)).to_be_visible()
 
+    def test_summary_cards_layout_and_amounts(self):
+        config = configuration()
+        for item in config["subscriptions"]:
+            item["amount"] = 999999999.99
+            item["currency"] = "CNY"
+        self.assertTrue(self.api.put("/api/configuration", headers=HEADERS, data=config).ok)
+        for width in (1440, 390):
+            for theme in ("light", "dark"):
+                with self.subTest(width=width, theme=theme):
+                    self.page.set_viewport_size({"width": width, "height": 1000})
+                    self.page.emulate_media(color_scheme=theme)
+                    self.page.goto("/")
+                    cards = self.page.locator(".summary > .card")
+                    expect(cards).to_have_count(4)
+                    for card in cards.all():
+                        label = card.locator("p").bounding_box()
+                        number = card.locator("strong").bounding_box()
+                        self.assertAlmostEqual(
+                            number["y"] - label["y"] - label["height"], 8, delta=1
+                        )
+                    boxes = [card.bounding_box() for card in cards.all()]
+                    self.assertTrue(all(abs(box["width"] - boxes[0]["width"]) < 1 for box in boxes))
+                    self.assertTrue(
+                        all(abs(box["height"] - boxes[0]["height"]) < 1 for box in boxes)
+                    )
+                    self.assertAlmostEqual(
+                        boxes[1]["x"] - boxes[0]["x"] - boxes[0]["width"], 16, delta=1
+                    )
+                    self.assertEqual(
+                        boxes[0]["y"], boxes[2]["y"]
+                    ) if width > 639 else self.assertGreater(boxes[2]["y"], boxes[0]["y"])
+                    self.assertTrue(
+                        self.page.locator(".summary").evaluate(
+                            "el => !el.classList.contains('card')"
+                        )
+                    )
+                    self.assertTrue(
+                        cards.evaluate_all(
+                            "els => els.every(el => el.scrollWidth <= el.clientWidth)"
+                        )
+                    )
+                    for amount in self.page.locator(".summary [data-money]").all():
+                        self.assertEqual(
+                            amount.get_attribute("title"), amount.get_attribute("aria-label")
+                        )
+                        self.assertIn("¥", amount.inner_text())
+        config["subscriptions"] = []
+        self.assertTrue(self.api.put("/api/configuration", headers=HEADERS, data=config).ok)
+        self.page.reload()
+        expect(self.page.locator(".summary strong")).to_have_text(["0", "0", "¥0.00", "¥0.00"])
+        expect(self.page.get_by_role("heading", name="暂无订阅", exact=True)).to_be_visible()
+
     def test_native_fields_guard_and_unknown_currency(self):
         self.navigate("订阅")
         group = self.page.get_by_role("group", name="订阅1", exact=True)

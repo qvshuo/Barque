@@ -52,7 +52,7 @@ Basecoat 0.3.11 → 官方稳定版 1.1.0。实施时官方文档与 npm latest 
 
 ## 测试与复现
 
-25 项开发环境 Python 测试、16 项 Playwright 测试通过；资源一致性检查、Ruff 检查与格式检查通过。Docker 内 24 项运行时 Python 测试通过，源码/压缩器一致性测试另在开发环境执行。开发环境和生产镜像 pip check 均通过。真实 iPhone Bark 收件未实测，通知成功/失败由隔离替身覆盖。
+当前回归：25 项开发环境 Python 测试、21 项 Playwright 测试通过；资源一致性检查、Ruff 检查与格式检查通过。Docker 内 24 项运行时 Python 测试通过，源码/压缩器一致性测试另在开发环境执行。开发环境和生产镜像 pip check 均通过。真实 iPhone Bark 收件未实测，通知成功/失败由隔离替身覆盖。
 
 ```sh
 python -m pip install -r requirements-dev.txt
@@ -78,6 +78,6 @@ Python 资源生成与部署仍不需要 Node 或新的构建工具。
 
 统一认证失效入口并避免重复打开登录对话框；续费等待后台刷新后重新核对订阅、账期和已付状态，状态变化时要求重新操作。补齐 Basecoat 按钮规范、Bark 显隐图标和 JavaScript 格式，清理重复 CSS。
 
-25 项 Python、18 项浏览器回归通过，Ruff、pip check 和资源一致性检查通过。独立 Docker 镜像完成 HTTP、配置操作、重启及已有数据兼容验证。业务模块、依赖、API 和持久化格式未改动。
+当轮 25 项 Python、18 项浏览器回归通过，Ruff、pip check 和资源一致性检查通过。独立 Docker 镜像完成 HTTP、配置操作、重启及已有数据兼容验证。业务模块、依赖、API 和持久化格式未改动。
 
 生产 JS gzip 从 5,356 增至 5,450 字节，应用 CSS gzip 从 1,909 降至 1,906 字节；Basecoat 资源和请求路径不变。本轮未重新测量 FCP、LCP 或浏览器堆，以上页面性能数据仍为上一轮实测。

@@ -1,7 +1,7 @@
 <div id="dashboard">
-  <div class="card summary">
+  <div class="summary">
     {% for label,value in [('订阅',dashboard.summary.total_subscription_count),('即将到期',dashboard.summary.expiring_subscription_count),('本月待付',dashboard.summary.monthly_due_cny),('年支出',dashboard.summary.yearly_estimated_cny)] %}
-      <div>
+      <div class="card">
         <p class="muted">{{ label }}</p>
         {% if label in ['本月待付', '年支出'] %}
           <strong data-money="{{ value }}" data-compact title="{{ value|money }}" aria-label="{{ value|money }}">{{ value|money }}</strong>

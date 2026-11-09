@@ -132,11 +132,22 @@ nav a[aria-current] {
 .summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px;
+  gap: 16px;
   margin-bottom: 32px;
 }
 
+.summary > .card {
+  gap: 0;
+  min-width: 0;
+  padding: 20px;
+}
+
+.summary .muted {
+  font-size: 13px;
+}
+
 .summary strong {
+  overflow-wrap: anywhere;
   font-size: 24px;
   display: block;
   margin-top: 8px;
@@ -454,6 +465,10 @@ label select {
 
   .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary > .card {
+    padding: 16px;
   }
 
   .summary strong {
