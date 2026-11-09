@@ -9,7 +9,6 @@ import time
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict
-from datetime import datetime
 from pathlib import Path
 
 from app.config import (
@@ -68,36 +67,12 @@ class Database:
     def _initialize(self):
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT value FROM settings WHERE id = 1").fetchone()
+            row = connection.execute("SELECT 1 FROM settings WHERE id = 1").fetchone()
             if row is None:
                 connection.execute(
                     "INSERT INTO settings VALUES (1, ?)", (json.dumps(asdict(AppConfig())),)
                 )
                 connection.execute("PRAGMA user_version=1")
-            else:
-                settings = json.loads(row[0])
-                if "title" in settings:
-                    settings.pop("title")
-                    connection.execute(
-                        "UPDATE settings SET value=? WHERE id=1", (json.dumps(settings),)
-                    )
-            # Move existing delivery receipts into the same durable state machine.
-            legacy = connection.execute(
-                "SELECT value FROM state WHERE key='notification_log'"
-            ).fetchone()
-            if legacy:
-                for item in json.loads(legacy[0]).get("notifications", []):
-                    if isinstance(item, dict) and isinstance(item.get("dedupe_key"), str):
-                        try:
-                            sent_at = datetime.fromisoformat(item.get("sent_at", "")).timestamp()
-                        except (TypeError, ValueError):
-                            sent_at = 0
-                        connection.execute(
-                            """INSERT INTO notification_attempts VALUES (?, 'success', 1, ?, 0, NULL)
-                            ON CONFLICT(cycle_key) DO UPDATE SET status='success', error=NULL""",
-                            (item["dedupe_key"], sent_at),
-                        )
-                connection.execute("DELETE FROM state WHERE key='notification_log'")
 
     @staticmethod
     def _read_subscriptions(connection) -> list[SubscriptionConfig]:

@@ -151,6 +151,8 @@ class DatabaseTests(unittest.TestCase):
         self.db.save_subscription_groups({**self.db.get_subscription_groups(), "categories": []})
         self.db.import_config(data)
         self.assertEqual(self.db.export_config(), data)
+        reopened = Database(Path(self.temp.name))
+        self.assertEqual(reopened.export_config(), data)
         groups = self.db.get_subscription_groups()
         groups["categories"][0]["subscriptions"][0]["currency"] = "ABC"
         self.db.save_subscription_groups(groups)
@@ -174,6 +176,7 @@ class DatabaseTests(unittest.TestCase):
             self.db.finish_notification("cycle", True)
         with patch("app.database.time.time", return_value=2000):
             self.assertFalse(self.db.claim_notification("cycle"))
+            self.assertFalse(Database(Path(self.temp.name)).claim_notification("cycle"))
         with self.db.connect() as conn:
             row = conn.execute("SELECT * FROM notification_attempts").fetchone()
             self.assertEqual((row["status"], row["attempts"]), ("success", 3))
@@ -182,27 +185,6 @@ class DatabaseTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as pool:
             claimed = list(pool.map(lambda _: self.db.claim_notification("same-cycle"), range(8)))
         self.assertEqual(sum(claimed), 1)
-
-    def test_legacy_notifications_stay_deduplicated(self):
-        with self.db.connect() as connection:
-            self.db._write_state(
-                connection, "notification_log", {"notifications": [{"dedupe_key": "legacy"}]}
-            )
-        upgraded = Database(Path(self.temp.name))
-        self.assertFalse(upgraded.claim_notification("legacy"))
-        with upgraded.connect() as connection:
-            self.assertEqual(
-                connection.execute(
-                    "SELECT status FROM notification_attempts WHERE cycle_key='legacy'"
-                ).fetchone()[0],
-                "success",
-            )
-            self.assertIsNone(
-                connection.execute(
-                    "SELECT value FROM state WHERE key='notification_log'"
-                ).fetchone()
-            )
-        self.assertFalse(Database(Path(self.temp.name)).claim_notification("legacy"))
 
     @patch("app.web.send_bark_notification", return_value=True)
     def test_test_bark_uses_unsaved_input(self, send):
