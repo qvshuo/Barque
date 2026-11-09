@@ -79,11 +79,7 @@ class BrowserTests(unittest.TestCase):
 
     def navigate(self, name):
         self.page.get_by_role("link", name=name, exact=True).click()
-        expect(
-            self.page.get_by_role(
-                "heading", name=name if name != "首页" else "我的订阅", exact=True
-            )
-        ).to_be_visible()
+        expect(self.page.get_by_role("heading", name=name, exact=True)).to_be_visible()
 
     def save(self):
         self.page.get_by_role("button", name="保存", exact=True).click()
@@ -377,7 +373,7 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.get_by_text("密码不正确", exact=True)).to_be_visible()
         self.page.get_by_label("密码", exact=True).fill(PASSWORD)
         self.page.get_by_role("button", name="登录", exact=True).click()
-        expect(self.page.get_by_role("heading", name="我的订阅", exact=True)).to_be_visible()
+        expect(self.page.get_by_role("heading", name="概览", exact=True)).to_be_visible()
         self.context.clear_cookies()
         self.page.get_by_role("button", name="订阅1：标记已付", exact=True).click()
         expect(self.page.locator("#reauth article")).to_be_visible()
@@ -569,7 +565,7 @@ class BrowserTests(unittest.TestCase):
         self.page.get_by_role("button", name="放弃更改", exact=True).click()
         expect(self.page.get_by_text("退出失败", exact=True)).to_be_visible()
         expect(self.page.get_by_label("时区", exact=True)).to_have_value("UTC")
-        self.page.get_by_role("link", name="首页", exact=True).click()
+        self.page.get_by_role("link", name="概览", exact=True).click()
         expect(self.page.get_by_role("alertdialog").locator("article")).to_be_visible()
 
     def test_duplicate_renewal_and_save_do_not_submit_twice(self):
@@ -603,7 +599,7 @@ class BrowserTests(unittest.TestCase):
         row = self.page.get_by_role("group", name="订阅1", exact=True)
         row.get_by_label("名称", exact=True).fill('<img src=x onerror="window.xss=1">')
         self.save()
-        self.navigate("首页")
+        self.navigate("概览")
         expect(
             self.page.get_by_role("heading", name='<img src=x onerror="window.xss=1">', exact=True)
         ).to_be_visible()
@@ -614,7 +610,7 @@ class BrowserTests(unittest.TestCase):
         self.assertFalse(
             self.page.locator("#settings-form").evaluate("form => form.checkValidity()")
         )
-        self.page.get_by_role("link", name="首页", exact=True).click()
+        self.page.get_by_role("link", name="概览", exact=True).click()
         dialog = self.page.get_by_role("alertdialog")
         expect(dialog.get_by_role("button", name="继续编辑", exact=True)).to_be_focused()
         self.page.keyboard.press("Tab")

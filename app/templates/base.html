@@ -25,7 +25,7 @@
             <span>Barque</span>
           </a>
           <nav aria-label="主导航">
-            {% for key, label, href in [('home','首页','/'),('subscriptions','订阅','/?page=subscriptions'),('settings','设置','/?page=settings')] %}
+            {% for key, label, href in [('home','概览','/'),('subscriptions','订阅','/?page=subscriptions'),('settings','设置','/?page=settings')] %}
               <a class="btn" data-variant="ghost"
                  href="{{ href }}"
                  {% if page == key %} aria-current="page" {% endif %}>{{ label }}</a>
