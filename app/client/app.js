@@ -565,7 +565,7 @@ if (page === "home") {
         throw new Error("请重新登录");
       }
       const scroll = window.scrollY;
-      const focused = document.activeElement?.closest(".renew")?.dataset.id;
+      const focused = document.activeElement?.closest(".renew")?.dataset;
       const selected = category.value;
       category.replaceChildren(
         new Option("全部分类", ""),
@@ -586,7 +586,9 @@ if (page === "home") {
       filter();
       if (focused) {
         [...document.querySelectorAll(".renew")]
-          .find((control) => control.dataset.id === focused)?.focus({ preventScroll: true });
+          .find((control) => control.dataset.id === focused.id &&
+            control.dataset.payment === focused.payment &&
+            control.dataset.renewal === focused.renewal)?.focus({ preventScroll: true });
       }
       window.scrollTo({
         top: scroll,
@@ -631,15 +633,18 @@ if (page === "home") {
         renewal_date: current.dataset.renewal,
         renewed: current.getAttribute("aria-pressed") !== "true",
       });
-      await refresh();
       completed = true;
+      // The write succeeded; a failed refresh must not invite another submission.
+      await refresh().catch(() => {});
     } catch (error) {
       feedback(error.message, true);
     } finally {
       pending = false;
       document.querySelectorAll(".renew").forEach((control) => {
         control.disabled = false;
-        if (completed && control.dataset.id === original.id) {
+        if (completed && control.dataset.id === original.id &&
+          control.dataset.payment === original.payment &&
+          control.dataset.renewal === original.renewal) {
           control.focus({ preventScroll: true });
         }
       });

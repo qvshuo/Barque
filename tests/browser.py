@@ -414,6 +414,75 @@ class BrowserTests(unittest.TestCase):
         ).to_be_enabled()
         self.assertEqual(writes, [])
 
+    def test_successful_renewal_survives_failed_refresh(self):
+        page = self.page
+        page.get_by_role("searchbox").fill("订阅1")
+        page.get_by_role("combobox", name="筛选分类").select_option(label="分类1")
+        writes, refreshes = [], []
+
+        def write(route):
+            writes.append(route.request.post_data_json)
+            route.continue_()
+
+        def refresh(route):
+            refreshes.append(route.request.url)
+            if len(refreshes) == 1:
+                route.fulfill(status=503, body="offline")
+            else:
+                route.continue_()
+
+        page.route("**/api/renewal-status", write)
+        page.route("**/", refresh)
+        button = page.get_by_role("button", name="订阅1：标记已付", exact=True)
+        button.click()
+        expect(button).to_be_enabled()
+        expect(button).to_be_focused()
+        expect(page.locator("#feedback")).to_be_hidden()
+        self.assertEqual(len(writes), 1)
+        self.assertTrue(writes[0]["renewed"])
+        self.assertEqual(
+            self.api.get("/api/dashboard").json()["category_groups"][0]["subscription_items"][0][
+                "button_state"
+            ]["status_kind"],
+            "renewed",
+        )
+        page.evaluate("dispatchEvent(new Event('focus'))")
+        paid = page.get_by_role("button", name="订阅1：已付，点击撤销", exact=True)
+        expect(paid).to_be_visible()
+        expect(paid).to_be_focused()
+        expect(page.get_by_role("searchbox")).to_have_value("订阅1")
+        expect(page.get_by_role("combobox", name="筛选分类")).to_have_value("分类1")
+        expect(page.locator("#feedback")).to_be_hidden()
+        self.assertEqual(len(writes), 1)
+
+    def test_background_refresh_focus_matches_billing_period(self):
+        for attribute in (None, "data-payment", "data-renewal"):
+            with self.subTest(attribute=attribute):
+                self.page.goto("/")
+                button = self.page.get_by_role("button", name="订阅1：标记已付", exact=True)
+                original = button.get_attribute(attribute) if attribute else None
+
+                def refresh(route):
+                    response = route.fetch()
+                    markup = response.text()
+                    if attribute:
+                        markup = markup.replace(
+                            f'{attribute}="{original}"', f'{attribute}="2099-01-01"'
+                        )
+                    route.fulfill(response=response, body=markup)
+
+                self.page.route("**/", refresh)
+                button.focus()
+                self.page.evaluate("dispatchEvent(new Event('focus'))")
+                if attribute:
+                    expect(button).to_have_attribute(attribute, "2099-01-01")
+                    expect(button).not_to_be_focused()
+                else:
+                    # A replacement, rather than an unchanged DOM, must retain focus.
+                    self.page.wait_for_timeout(250)
+                    expect(button).to_be_focused()
+                self.page.unroute("**/", refresh)
+
     def test_failed_logout_preserves_unsaved_protection(self):
         self.navigate("设置")
         self.page.get_by_label("时区", exact=True).fill("UTC")
