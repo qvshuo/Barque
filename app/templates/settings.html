@@ -11,30 +11,30 @@
       <section class="card">
         <h2>续费提醒</h2>
         <label>
-          Bark 推送地址
+          Bark 地址
           <div class="row">
             <input class="input"
                    name="notify_url"
-                   aria-label="Bark 推送地址"
+                   aria-label="Bark 地址"
                    type="password"
                    value="{{ settings.notify_url }}"
                    maxlength="2048"
                    autocomplete="off"
                    placeholder="e.g. https://api.day.app/your-key">
-            <button type="button" class="btn-outline" id="reveal" aria-label="显示推送地址">显示</button>
+            <button type="button" class="btn" data-variant="outline" id="reveal" aria-label="显示推送地址"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
           </div>
         </label>
         {{ field('提醒时间','reminder_time',settings.reminder_time,'time',{'required': True}) }}
-        <div class="form-grid">{{ field('提前提醒天数','remind_before_days',settings.remind_before_days,'number',{'required': True, 'min': '0', 'max': '365', 'step': '1'}) }}
-          {{ field('检查间隔（秒）','check_interval_seconds',settings.check_interval_seconds,'number',{'required': True, 'min': '10', 'max': '86400', 'step': '1'}) }}</div>
-        <button type="button" class="btn-outline" id="test-notification">发送测试通知</button>
+        <div class="form-grid">{{ field('提前提醒','remind_before_days',settings.remind_before_days,'number',{'required': True, 'min': '0', 'max': '365', 'step': '1'}) }}
+          {{ field('检查间隔','check_interval_seconds',settings.check_interval_seconds,'number',{'required': True, 'min': '10', 'max': '86400', 'step': '1'}) }}</div>
+        <button type="button" class="btn" data-variant="outline" id="test-notification">测试通知</button>
       </section>
       <section class="card">
         <h2>备份与恢复</h2>
         <div class="row backup">
           <input type="file" id="import-file" accept=".json,application/json" hidden>
-          <button type="button" class="btn-outline" id="import">导入</button>
-          <button type="button" class="btn-outline" id="export">导出</button>
+          <button type="button" class="btn" data-variant="outline" id="import">导入</button>
+          <button type="button" class="btn" data-variant="outline" id="export">导出</button>
         </div>
       </section>
     </fieldset>

@@ -39,11 +39,8 @@ def rss(pid):
 
 
 def source_stats(root, baseline):
-    paths = (
-        list((root / "frontend" / "src").rglob("*"))
-        if baseline
-        else list((root / "app" / "client").rglob("*"))
-        + list((root / "app" / "templates").rglob("*"))
+    paths = list((root / "app" / "client").rglob("*")) + list(
+        (root / "app" / "templates").rglob("*")
     )
     paths = [path for path in paths if path.suffix in {".tsx", ".ts", ".js", ".css", ".html"}]
     maintained = [path for path in paths if path.name != "shadcn.css"]
@@ -56,7 +53,7 @@ def source_stats(root, baseline):
 
 
 def asset_stats(root, baseline):
-    directory = root / "frontend" / "dist" if baseline else root / "app" / "static"
+    directory = root / "app" / "static"
     result = {}
     for kind, suffixes in {
         "js": {".js"},
@@ -104,10 +101,10 @@ def measure(root, baseline, browser, runs):
             ("home", "/", "我的订阅"),
             (
                 "subscriptions",
-                "/#subscriptions" if baseline else "/?page=subscriptions#subscriptions",
-                "管理订阅",
+                "/?page=subscriptions",
+                "管理订阅" if baseline else "订阅",
             ),
-            ("settings", "/#settings" if baseline else "/?page=settings#settings", "设置"),
+            ("settings", "/?page=settings", "设置"),
         ]:
             samples = {"cold": [], "warm": []}
             for _ in range(runs):

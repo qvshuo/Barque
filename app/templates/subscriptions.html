@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from 'forms.html' import group, subscription, savebar with context %}
 {% block content %}
-  <h1>管理订阅</h1>
+  <h1>订阅</h1>
   <form id="management" data-revision="{{ groups.revision }}">
     <fieldset>
       <div id="groups">
@@ -9,7 +9,7 @@
           {{ group(entry) }}
         {% endfor %}
       </div>
-      <button class="btn-outline" type="button" data-action="add-group">＋ 添加分类</button>
+      <button class="btn" data-variant="outline" type="button" data-action="add-group">＋ 添加分类</button>
     </fieldset>
     {{ savebar() }}
   </form>

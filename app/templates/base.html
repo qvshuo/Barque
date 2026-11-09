@@ -12,7 +12,7 @@
     <title>Barque</title>
     <link rel="icon" href="{{ asset('favicon.ico') }}">
     <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
-    <link rel="stylesheet" href="{{ asset('vendor/basecoat-0.3.11.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/basecoat-1.1.0.min.css') }}">
     <link rel="stylesheet" href="{{ asset('app.css') }}">
     <script type="module" src="{{ asset('app.js') }}"></script>
   </head>
@@ -25,13 +25,13 @@
             <span>Barque</span>
           </a>
           <nav aria-label="主导航">
-            {% for key, label, href in [('home','首页','/'),('subscriptions','管理订阅','/?page=subscriptions#subscriptions'),('settings','设置','/?page=settings#settings')] %}
-              <a class="btn-ghost"
+            {% for key, label, href in [('home','首页','/'),('subscriptions','订阅','/?page=subscriptions'),('settings','设置','/?page=settings')] %}
+              <a class="btn" data-variant="ghost"
                  href="{{ href }}"
                  {% if page == key %} aria-current="page" {% endif %}>{{ label }}</a>
             {% endfor %}
           </nav>
-          <button class="btn-icon-ghost" id="logout" aria-label="退出登录">
+          <button class="btn" data-variant="ghost" data-size="icon" id="logout" aria-label="退出登录">
             <svg width="20"
                  height="20"
                  viewBox="0 0 24 24"
@@ -48,6 +48,15 @@
     <main {% if page == 'login' %} class="login" {% endif %}>
       {% block content %}{% endblock %}
     </main>
+    <dialog id="reauth" class="dialog" aria-labelledby="reauth-title">
+      <article><header><h2 id="reauth-title">重新登录</h2></header><section><form id="reauth-form">
+        <input class="input" name="password" type="password" aria-label="重新登录密码" placeholder="密码" autocomplete="current-password" required maxlength="256">
+        <p class="error" role="alert" hidden></p>
+        <footer><button class="btn" type="submit">登录</button>
+        <button class="btn" data-variant="outline" type="button" id="reauth-cancel">继续编辑</button></footer>
+      </form></section></article>
+    </dialog>
+    <button id="reauth-open" class="btn" data-variant="outline" hidden>重新登录</button>
     <div id="feedback" role="status" aria-live="polite" hidden></div>
     <dialog id="confirm"
             class="dialog"
@@ -60,8 +69,8 @@
           <p id="confirm-description"></p>
         </header>
         <footer>
-          <button type="button" class="btn-outline" id="confirm-cancel" autofocus>继续编辑</button>
-          <button type="button" class="btn-destructive" id="confirm-ok">放弃更改</button>
+          <button type="button" class="btn" data-variant="outline" id="confirm-cancel" autofocus>继续编辑</button>
+          <button type="button" class="btn" data-variant="destructive" id="confirm-ok">放弃更改</button>
         </footer>
       </article>
     </dialog>

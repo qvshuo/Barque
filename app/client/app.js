@@ -31,10 +31,9 @@ async function api(path, method = "GET", data = {}) {
     );
   }
   if (response.status === 401 && !path.startsWith("/auth/")) {
-    saved = snapshot();
-    busy = false;
-    location.reload();
-    throw new Error("请先输入访问密码");
+    document.querySelector('#reauth-open').hidden = false;
+    document.querySelector('#reauth').showModal();
+    throw new Error('请重新登录后保存');
   }
   if (!response.ok) {
     const value = await response.json().catch(() => null);
@@ -104,6 +103,7 @@ function sync() {
   if (!form) return;
   const changed = dirty();
   if (page === "subscriptions") labels();
+  form.querySelector(".savebar").style.visibility = changed ? "visible" : "hidden";
   form.querySelector(".dirty").hidden = !changed;
   form.querySelector(".save").disabled = busy || !changed;
   if (page === "settings") {
@@ -157,24 +157,7 @@ document.addEventListener("click", (event) => {
     void leave(() => location.assign(link.href));
   }
 });
-// Legacy hash URLs resolve to ordinary server-rendered documents.
-function legacyHash() {
-  if (page === "login" || page === "error") return;
-  const target = location.hash.slice(1);
-  if (["settings", "subscriptions"].includes(target) && target !== page) {
-    void leave(() => location.replace(`/?page=${target}#${target}`)).then((accepted) => {
-      if (!accepted)
-        history.replaceState(
-          null,
-          "",
-          location.pathname + location.search + (page === "home" ? "" : `#${page}`),
-        );
-    });
-  }
-}
-window.addEventListener("hashchange", legacyHash);
 saved = snapshot();
-legacyHash();
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) {
     if (!dirty()) location.reload();
@@ -213,6 +196,25 @@ document.querySelector("#login-form")?.addEventListener("submit", async (event) 
     button.textContent = "登录";
   }
 });
+const reauth = document.querySelector('#reauth');
+document.querySelector('#reauth-open').addEventListener('click', () => reauth.showModal());
+document.querySelector('#reauth-cancel').addEventListener('click', () => reauth.close());
+document.querySelector('#reauth-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const login = event.currentTarget, button = login.querySelector('[type=submit]'), errorBox = login.querySelector('.error');
+  if (button.disabled) return;
+  button.disabled = true;
+  errorBox.hidden = true;
+  try {
+    await api('/auth/login', 'POST', {password:login.elements.password.value});
+    login.reset();
+    reauth.close();
+    document.querySelector('#reauth-open').hidden = true;
+    window.dispatchEvent(new Event('barque:authenticated'));
+  } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
+  finally { button.disabled = false; }
+});
+reauth.addEventListener('close', () => document.querySelector('#reauth-form').reset());
 if (form) {
   saved = snapshot();
   form.addEventListener("input", (event) => {
@@ -247,7 +249,7 @@ if (form) {
       fieldset.disabled = false;
       saved = snapshot();
       form.querySelector(".reload").hidden = true;
-      feedback("已保存");
+
     } catch (error) {
       errorBox.textContent = error.message;
       errorBox.hidden = false;
@@ -355,7 +357,7 @@ if (page === "settings") {
     const input = form.elements.notify_url,
       reveal = input.type === "password";
     input.type = reveal ? "text" : "password";
-    event.currentTarget.textContent = reveal ? "隐藏" : "显示";
+    event.currentTarget.setAttribute("aria-pressed", String(reveal));
     event.currentTarget.setAttribute("aria-label", reveal ? "隐藏推送地址" : "显示推送地址");
   });
   document.querySelector("#test-notification").addEventListener("click", async (event) => {
@@ -369,13 +371,13 @@ if (page === "settings") {
     form.querySelector(".save").disabled = true;
     try {
       await api("/test-notification", "POST", { notify_url: url });
-      feedback("测试通知已发送，请查看你的设备");
+      feedback("已发送");
     } catch (error) {
       feedback(error.message, true);
     } finally {
       busy = false;
       form.querySelector("fieldset").disabled = false;
-      button.textContent = "发送测试通知";
+      button.textContent = "测试通知";
       sync();
     }
   });
@@ -477,6 +479,7 @@ if (page === "home") {
       if (!Number.isNaN(value.valueOf())) time.textContent = value.toLocaleString("zh-CN");
     }
   }
+  let lastMarkup = null;
   let refreshing = null,
     pending = false,
     timer;
@@ -488,12 +491,16 @@ if (page === "home") {
         signal: AbortSignal.timeout(30000),
       });
       if (!response.ok) throw new Error("无法加载订阅，请刷新后重试");
-      const doc = new DOMParser().parseFromString(await response.text(), "text/html"),
+      const markup = await response.text();
+      if (markup === lastMarkup) return;
+      const doc = new DOMParser().parseFromString(markup, "text/html"),
         next = doc.querySelector("#dashboard");
       if (!next) {
-        location.reload();
-        return;
+        document.querySelector('#reauth-open').hidden = false;
+        throw new Error('请重新登录');
       }
+      const scroll = window.scrollY;
+      const focused = document.activeElement?.closest(".renew")?.dataset.id;
       const selected = category.value;
       category.replaceChildren(
         new Option("全部分类", ""),
@@ -509,6 +516,9 @@ if (page === "home") {
       times();
       formatMoney();
       filter();
+      if (focused) [...document.querySelectorAll('.renew')].find(control => control.dataset.id === focused)?.focus({preventScroll:true});
+      window.scrollTo({top:scroll,behavior:'instant'});
+      lastMarkup = markup;
     })().finally(() => {
       refreshing = null;
     });
@@ -526,7 +536,7 @@ if (page === "home") {
       control.disabled = true;
     });
     try {
-      if (refreshing) await refreshing;
+      if (refreshing) await refreshing.catch(() => {});
       await api("/renewal-status", "PUT", {
         subscription_id: button.dataset.id,
         payment_date: button.dataset.payment,
@@ -535,7 +545,7 @@ if (page === "home") {
       });
       await refresh();
       document.querySelectorAll(".renew").forEach((control) => {
-        if (control.dataset.id === button.dataset.id) control.focus();
+        if (control.dataset.id === button.dataset.id) control.focus({preventScroll:true});
       });
     } catch (error) {
       feedback(error.message, true);
@@ -549,8 +559,9 @@ if (page === "home") {
   function schedule() {
     if (document.hidden || pending) return;
     clearTimeout(timer);
-    timer = setTimeout(() => refresh().catch((error) => feedback(error.message, true)), 100);
+    timer = setTimeout(() => refresh().catch(() => {}), 100);
   }
+  window.addEventListener("barque:authenticated", schedule);
   setInterval(schedule, 60000);
   window.addEventListener("focus", schedule);
   document.addEventListener("visibilitychange", schedule);

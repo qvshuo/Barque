@@ -10,7 +10,7 @@
 | 提前提醒天数 | 7 天 | 建议保留，取决于续费处理习惯 |
 | 后台检查间隔 | 3600 秒 | 可进一步固定为每小时；普通订阅按天计费，通常不需要用户调整秒数 |
 
-首页 `/` 用于查看订阅、搜索筛选和标记续费。「管理订阅」`/?page=subscriptions#subscriptions` 按分类内联编辑，直接添加、修改、上下移动或删除分类和订阅，统一保存后生效；管理页不重复显示首页统计和账期进度。批量保存具有事务保护，其他页面修改订阅后会提示重新加载，避免覆盖较新的数据。「设置」`/?page=settings#settings` 提供应用设置与备份恢复。三个导航入口共用全站密码保护，登录一次即可访问。
+首页 `/` 用于查看订阅、搜索筛选和标记续费。「订阅」`/?page=subscriptions` 按分类内联编辑，直接添加、修改、上下移动或删除分类和订阅，统一保存后生效；管理页不重复显示首页统计和账期进度。批量保存具有事务保护，其他页面修改订阅后会提示重新加载，避免覆盖较新的数据。「设置」`/?page=settings` 提供应用设置与备份恢复。三个导航入口共用全站密码保护，登录一次即可访问。
 
 ## 已固定、未提供设置入口
 
@@ -66,6 +66,8 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/playwright install chromium
 .venv/bin/python -m tests.browser -v
+.venv/bin/python tools/prepare_assets.py --check
+.venv/bin/python -m pip check
 .venv/bin/ruff check app tests tools
 .venv/bin/ruff format --check app tests tools
 ```
@@ -74,9 +76,9 @@ python3 -m venv .venv
 
 ## 页面与静态资源
 
-Flask 保持原有 HTTP 服务和 JSON API，Jinja2 渲染首屏，原生 ES Modules 处理交互。导航使用普通页面链接；旧版 `/#subscriptions`、`/#settings` 和 `/admin` 入口继续可用。首页每 60 秒以及返回前台时局部更新，表单保存继续复用原有 API 和订阅版本号，不覆盖其他窗口已提交的数据。
+Flask 保持原有 HTTP 服务和 JSON API，Jinja2 渲染首屏，原生 ES Modules 处理交互。导航使用普通页面链接；页面统一使用 `/?page=subscriptions` 和 `/?page=settings`；不再使用 hash 导航。首页每 60 秒以及返回前台时局部更新，表单保存继续复用原有 API 和订阅版本号，不覆盖其他窗口已提交的数据。
 
-模板位于 `app/templates`，可维护的 JS/CSS 位于 `app/client`，已压缩的生产资源和 Basecoat 0.3.11 预构建 CSS 位于 `app/static`。Dialog、Select、日期和表单使用浏览器原生能力，不加载未使用的 Basecoat 组件脚本。页面自动转义，动态文本通过 DOM 文本属性写入；模板片段只解析同源服务端 HTML。
+模板位于 `app/templates`，可维护的 JS/CSS 位于 `app/client`，已压缩的生产资源和 Basecoat 1.1.0 预构建 CSS 位于 `app/static`。Dialog、Select、日期和表单使用浏览器原生能力，不加载未使用的 Basecoat 组件脚本。页面自动转义，动态文本通过 DOM 文本属性写入；模板片段只解析同源服务端 HTML。
 
 修改 JS/CSS 后更新已提交的生产资源：
 
@@ -84,10 +86,12 @@ Flask 保持原有 HTTP 服务和 JSON API，Jinja2 渲染首屏，原生 ES Mod
 .venv/bin/python tools/prepare_assets.py
 ```
 
-该脚本仅使用开发依赖中的 Python 压缩器，并生成确定性的 gzip 文件。部署和容器启动不运行构建，也不需要 Node、npm 或开发依赖。Basecoat MIT 许可保留在 `app/static/vendor/BASECOAT-LICENSE`，上游资源来源为 [Basecoat 0.3.11](https://www.jsdelivr.com/package/npm/basecoat-css?version=0.3.11)。
+该脚本仅使用开发依赖中的 Python 压缩器，并生成确定性的 gzip 文件。部署和容器启动不运行构建，也不需要 Node、npm 或开发依赖。Basecoat MIT 许可保留在 `app/static/vendor/BASECOAT-LICENSE`，上游资源来源为 [Basecoat 1.1.0](https://www.jsdelivr.com/package/npm/basecoat-css?version=1.1.0)。
 
 HTML、JSON 和错误响应使用 `Cache-Control: no-store`。文本资源协商 gzip，响应包含 `Vary: Accept-Encoding`；JS/CSS 优先使用本地预压缩文件。静态资源使用内容摘要版本号，仅与当前内容一致的版本 URL 长期缓存；旧版本号和未版本化入口使用 ETag 验证。图片不再 gzip。HEAD、304 和 Range 保留对应 HTTP 语义。
 
 生产环境继续执行 `python -m app.main`，由 Waitress 提供服务。Python 依赖、监听地址、环境变量和持久化目录不变，无需迁移数据库或配置。
 
 镜像大小、生产容器、数据卷升级与会话保留的实测结果及 Docker 验证命令见 [性能报告](performance.md#服务内存与-docker)。
+
+会话失效时，当前页面提供重新登录入口。订阅及设置草稿仅保留在当前页面内存中，登录失败也不会清除；登录成功后需再次手动保存。页面关闭或刷新后不恢复草稿，Bark 地址等配置不会写入浏览器持久存储。

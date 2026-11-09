@@ -99,9 +99,9 @@ for path in assets:
 checks.append('asset integrity, gzip, HEAD and ETag/304 through Waitress')
 if 'data-page=' in html:
     assert '我的订阅' in html and '订阅1' in html
-    assert 'Bark 推送地址' in request('/?page=settings')['body'].decode()
+    assert 'notify_url' in request('/?page=settings')['body'].decode()
     anonymous = request('/?page=settings',authenticated=False)['body'].decode()
-    assert 'login-form' in anonymous and 'Bark 推送地址' not in anonymous
+    assert 'login-form' in anonymous and 'Bark 地址' not in anonymous
     packed = request('/',headers={{'Accept-Encoding':'gzip'}})
     assert gzip.decompress(packed['body']) == request('/')['body']
     css_path = next(path for path in assets if '.css' in path)

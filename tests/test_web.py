@@ -35,12 +35,17 @@ class WebTests(unittest.TestCase):
         self.addCleanup(response.close)
         return response
 
+    def test_production_assets_match_sources(self):
+        from tools.prepare_assets import prepare
+
+        prepare(check=True)
+
     def test_server_rendered_pages_and_unauthenticated_isolation(self):
         for path, text in [
             ("/", "我的订阅"),
-            ("/?page=subscriptions", "管理订阅"),
-            ("/?page=settings", "Bark 推送地址"),
-            ("/admin/", "管理订阅"),
+            ("/?page=subscriptions", "订阅"),
+            ("/?page=settings", "Bark 地址"),
+            ("/admin/", "订阅"),
         ]:
             response = self.get(path)
             self.assertEqual(response.status_code, 200)
@@ -51,7 +56,7 @@ class WebTests(unittest.TestCase):
         for path in ["/", "/?page=settings", "/admin/", "/?page=subscriptions"]:
             response = anonymous.get(path)
             self.assertIn('id="login-form"', response.text)
-            self.assertNotIn("Bark 推送地址", response.text)
+            self.assertNotIn("Bark 地址", response.text)
         self.assertEqual(anonymous.get("/api/settings").status_code, 401)
 
     def test_gzip_dynamic_head_and_api_contract(self):
@@ -72,7 +77,7 @@ class WebTests(unittest.TestCase):
         self.assertIn("yearly_estimated_cny", dashboard["summary"])
 
     def test_static_precompression_negotiation_head_and_cache(self):
-        for filename in ["app.js", "app.css", "vendor/basecoat-0.3.11.min.css"]:
+        for filename in ["app.js", "app.css", "vendor/basecoat-1.1.0.min.css"]:
             digest = hashlib.sha256((STATIC_DIR / filename).read_bytes()).hexdigest()[:16]
             path = f"/assets/{filename}?v={digest}"
             plain = self.get(path, headers={"Accept-Encoding": "identity"})
