@@ -9,35 +9,27 @@
       </div>
     {% endfor %}
   </div>
-  <div class="filters" {% if not dashboard.summary.total_subscription_count %}hidden{% endif %}>
-    <input class="input"
-           id="search"
-           type="search"
-           placeholder="搜索订阅"
-           aria-label="搜索订阅">
-    <select class="select" id="category" aria-label="筛选分类">
-      <option value="">全部分类</option>
-      {% for group in dashboard.category_groups %}
-        <option>{{ group.category_name }}</option>
-      {% endfor %}
-    </select>
-  </div>
   {% for group in dashboard.category_groups %}
-    <section class="category"
-             aria-label="{{ group.category_name }}"
-             data-category="{{ group.category_name }}">
+    <section class="category" aria-label="{{ group.category_name }}">
       <div class="section-heading">
-        <h2>{{ group.category_name }}</h2>
-        <span class="muted">
-          <span data-count>{{ group.subscription_count }}</span> 个订阅，约 <span data-yearly>{{ group.yearly_estimated_cny|money }}</span> / 年</span>
+        <div class="category-title">
+          <h2>{{ group.category_name }}</h2>
+          <span class="muted">{{ group.subscription_count }}</span>
+        </div>
+        <span class="muted category-stats">
+          约 {{ group.yearly_estimated_cny|money }} / 年 · 占比
+          {% if dashboard.summary.yearly_estimated_cny > 0 %}
+            {{ "%.1f"|format(group.yearly_estimated_cny / dashboard.summary.yearly_estimated_cny * 100) }}%
+          {% else %}
+            0%
+          {% endif %}
+        </span>
       </div>
       <div class="cards">
         {% for item in group.subscription_items %}
           {% set paid = item.button_state.status_kind == 'renewed' %}
           {% set state = 'paid' if paid else 'urgent' if item.days_left == 0 else 'soon' if item.button_state.status_kind == 'renewal_pending' else 'normal' %}
-          <article class="card subscription"
-                   data-name="{{ item.name }}"
-                   data-yearly="{{ item.yearly_estimated_cny or 0 }}">
+          <article class="card subscription">
             <header class="row">
               <h3>{{ item.name }}</h3>
               <span class="muted"
@@ -92,7 +84,7 @@
   <div class="card empty"
        id="empty"
        {% if dashboard.summary.total_subscription_count %} hidden {% endif %}>
-    <h2>{{ '暂无订阅' if not dashboard.summary.total_subscription_count else '没有匹配的订阅' }}</h2>
+    <h2>暂无订阅</h2>
   </div>
   <p class="muted timestamps">
     上次检查：<time>{{ dashboard.summary.last_check_at or '尚未更新' }}</time> · 汇率更新：<time>{{ dashboard.summary.exchange_rate_updated_at or '尚未更新' }}</time>

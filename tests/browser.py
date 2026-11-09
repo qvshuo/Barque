@@ -89,24 +89,25 @@ class BrowserTests(unittest.TestCase):
         self.page.get_by_role("button", name="保存", exact=True).click()
         expect(self.page.get_by_text("未保存", exact=True)).to_be_hidden()
 
-    def test_filter_search_renewal_and_chart_removal(self):
+    def test_home_categories_and_renewal(self):
         page = self.page
-        self.assertEqual(page.locator("canvas,.recharts-wrapper").count(), 0)
-        select = page.get_by_role("combobox", name="筛选分类")
-        select.select_option(label="分类2")
-        expect(page.get_by_role("region", name="分类1", exact=True)).to_be_hidden()
+        expect(page.locator("#search, #category, .filters")).to_have_count(0)
+        expect(page.locator(".category")).to_have_count(7)
         renew = page.get_by_role("button", name="订阅2：标记已付", exact=True)
         renew.click()
         paid = page.get_by_role("button", name="订阅2：已付，点击撤销", exact=True)
         expect(paid).to_have_attribute("aria-pressed", "true")
         paid.click()
         expect(renew).to_have_attribute("aria-pressed", "false")
-        select.select_option("")
-        page.get_by_role("searchbox").fill("订阅7")
-        expect(page.get_by_role("region", name="分类7", exact=True)).to_be_visible()
-        expect(page.get_by_role("region", name="分类2", exact=True)).to_be_hidden()
-        page.get_by_role("searchbox").fill("无匹配")
-        expect(page.get_by_text("没有匹配的订阅", exact=True)).to_be_visible()
+        groups = self.scheduler.get_dashboard(self.database.get_config())
+        total = groups["summary"]["yearly_estimated_cny"]
+        for group, section in zip(groups["category_groups"], page.locator(".category").all()):
+            expect(section.locator(".category-title .muted")).to_have_text(
+                str(group["subscription_count"])
+            )
+            expect(section.locator(".category-stats")).to_contain_text(
+                f"{group['yearly_estimated_cny'] / total * 100:.1f}%"
+            )
 
     def test_summary_cards_layout_and_amounts(self):
         config = configuration()
@@ -141,6 +142,12 @@ class BrowserTests(unittest.TestCase):
                             amount.get_attribute("title"), amount.get_attribute("aria-label")
                         )
                         self.assertIn("¥", amount.inner_text())
+        for item in config["subscriptions"]:
+            item["amount"] = 0
+        self.assertTrue(self.api.put("/api/configuration", headers=HEADERS, data=config).ok)
+        self.page.reload()
+        for stats in self.page.locator(".category-stats").all():
+            expect(stats).to_contain_text("占比 0%")
         config["subscriptions"] = []
         self.assertTrue(self.api.put("/api/configuration", headers=HEADERS, data=config).ok)
         self.page.reload()
@@ -169,10 +176,10 @@ class BrowserTests(unittest.TestCase):
         self.page.reload()
         expect(self.page.get_by_label("付款日期", exact=True).first).to_have_value("2024-01-30")
 
-    def test_background_refresh_recovers_and_preserves_filter(self):
+    def test_background_refresh_recovers_and_preserves_focus(self):
         page = self.page
-        page.get_by_role("combobox", name="筛选分类").select_option(label="分类2")
-        page.get_by_role("searchbox").fill("订阅2")
+        button = page.get_by_role("button", name="订阅2：标记已付", exact=True)
+        button.focus()
         requests = []
 
         def refresh(route):
@@ -188,8 +195,8 @@ class BrowserTests(unittest.TestCase):
         expect(page.get_by_role("heading", name="订阅2", exact=True)).to_be_visible()
         page.evaluate("dispatchEvent(new Event('focus'))")
         page.wait_for_timeout(250)
-        expect(page.get_by_role("searchbox")).to_have_value("订阅2")
-        expect(page.get_by_role("combobox", name="筛选分类")).to_have_value("分类2")
+        expect(button).to_be_focused()
+        expect(page.locator(".category")).to_have_count(7)
         self.assertEqual(len(requests), 2)
 
     def test_batch_add_order_delete_empty_category(self):
@@ -199,7 +206,9 @@ class BrowserTests(unittest.TestCase):
         group = page.get_by_role("region", name="新分类", exact=True)
         group.get_by_label("分类", exact=True).fill("新增分类")
         group = page.get_by_role("region", name="新增分类", exact=True)
-        group.get_by_role("button", name="添加订阅", exact=False).click()
+        add = group.get_by_role("button", name="添加订阅", exact=False)
+        self.assertLess(add.bounding_box()["width"], group.bounding_box()["width"] * 0.8)
+        add.click()
         row = group.get_by_role("group", name="新订阅", exact=True)
         row.get_by_label("名称", exact=True).fill("新增订阅")
         row = group.get_by_role("group", name="新增订阅", exact=True)
@@ -219,19 +228,9 @@ class BrowserTests(unittest.TestCase):
     def test_bark_unsaved_success_failure_and_settings_save(self):
         self.navigate("设置")
         page = self.page
-        reveal = page.locator("#reveal")
-        for visible in (True, False):
-            reveal.click()
-            expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute(
-                "type", "text" if visible else "password"
-            )
-            expect(reveal).to_have_attribute("aria-pressed", str(visible).lower())
-            expect(reveal).to_have_attribute(
-                "aria-label", "隐藏推送地址" if visible else "显示推送地址"
-            )
-            expect(reveal.locator("[data-eye-closed]")).to_be_visible() if visible else expect(
-                reveal.locator("[data-eye-open]")
-            ).to_be_visible()
+        expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute("type", "url")
+        expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute("autocomplete", "off")
+        expect(page.locator("#reveal")).to_have_count(0)
         page.get_by_label("Bark 地址", exact=True).fill("https://example.com/unsaved-key")
 
         def notification(route):
@@ -459,8 +458,6 @@ class BrowserTests(unittest.TestCase):
 
     def test_successful_renewal_survives_failed_refresh(self):
         page = self.page
-        page.get_by_role("searchbox").fill("订阅1")
-        page.get_by_role("combobox", name="筛选分类").select_option(label="分类1")
         writes, refreshes = [], []
 
         def write(route):
@@ -493,8 +490,6 @@ class BrowserTests(unittest.TestCase):
         paid = page.get_by_role("button", name="订阅1：已付，点击撤销", exact=True)
         expect(paid).to_be_visible()
         expect(paid).to_be_focused()
-        expect(page.get_by_role("searchbox")).to_have_value("订阅1")
-        expect(page.get_by_role("combobox", name="筛选分类")).to_have_value("分类1")
         expect(page.locator("#feedback")).to_be_hidden()
         self.assertEqual(len(writes), 1)
 

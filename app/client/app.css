@@ -14,34 +14,6 @@ body {
   font-size: 14px;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-[hidden] {
-  display: none !important;
-}
-
-button,
-a,
-input,
-select {
-  touch-action: manipulation;
-}
-
-button {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: default;
-}
-
-a {
-  text-decoration: none;
-  color: inherit;
-}
-
 h1 {
   font-size: 28px;
   font-weight: 600;
@@ -119,10 +91,6 @@ nav a[aria-current] {
 
 .card {
   padding: 24px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow: 0 1px 2px #0000000d;
 }
 
 .card h2 {
@@ -155,27 +123,24 @@ nav a[aria-current] {
   font-variant-numeric: tabular-nums;
 }
 
-.filters {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.filters input {
-  flex: 1;
-  min-width: 0;
-}
-
-.filters select {
-  width: 176px;
-}
-
 .section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.category-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.category-stats {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .section-heading h2 {
@@ -194,8 +159,6 @@ nav a[aria-current] {
 }
 
 .subscription {
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
@@ -277,13 +240,6 @@ progress.paid {
   opacity: 0.75;
 }
 
-fieldset {
-  border: 0;
-  min-width: 0;
-  padding: 0;
-  margin: 0;
-}
-
 label {
   display: flex;
   flex-direction: column;
@@ -296,9 +252,9 @@ label.row {
   flex-direction: row;
 }
 
-label input,
-label select {
-  font-weight: 400;
+.notify-toggle {
+  justify-content: flex-start;
+  width: fit-content;
 }
 
 .row > label {
@@ -325,7 +281,8 @@ label select {
   margin-bottom: 20px;
 }
 
-.editor-group > button {
+.editor-group > button[data-action="add-subscription"] {
+  align-self: flex-start;
   margin-top: 12px;
 }
 
@@ -360,8 +317,6 @@ label select {
 
 #settings-form .card {
   margin-bottom: 24px;
-  display: flex;
-  flex-direction: column;
   gap: 20px;
 }
 
@@ -451,10 +406,6 @@ label select {
     display: none;
   }
 
-  nav a {
-    padding-inline: 10px;
-  }
-
   h1 {
     font-size: 24px;
   }
@@ -475,14 +426,6 @@ label select {
     font-size: 20px;
   }
 
-  .filters {
-    flex-direction: column;
-  }
-
-  .filters select {
-    width: 100%;
-  }
-
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -492,11 +435,11 @@ label select {
   }
 
   .section-heading {
-    align-items: flex-start;
+    flex-wrap: wrap;
   }
 
-  .section-heading > span {
-    text-align: right;
+  .category-stats {
+    margin-left: auto;
   }
 }
 
@@ -525,16 +468,6 @@ label select {
 #reauth form {
   display: grid;
   gap: 16px;
-}
-
-.btn,
-.input:not([type="checkbox"]),
-select.select {
-  min-height: 44px;
-}
-
-.btn svg {
-  stroke-width: 1.75;
 }
 
 .renew {

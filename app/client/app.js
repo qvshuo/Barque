@@ -394,15 +394,6 @@ function applySettings(result) {
     if (form.elements[key]) form.elements[key].value = value;
 }
 if (page === "settings") {
-  document.querySelector("#reveal").addEventListener("click", (event) => {
-    const input = form.elements.notify_url,
-      reveal = input.type === "password";
-    input.type = reveal ? "text" : "password";
-    event.currentTarget.querySelector("[data-eye-open]").toggleAttribute("hidden", reveal);
-    event.currentTarget.querySelector("[data-eye-closed]").toggleAttribute("hidden", !reveal);
-    event.currentTarget.setAttribute("aria-pressed", String(reveal));
-    event.currentTarget.setAttribute("aria-label", reveal ? "隐藏推送地址" : "显示推送地址");
-  });
   document.querySelector("#test-notification").addEventListener("click", async (event) => {
     if (busy) return;
     const url = form.elements.notify_url.value,
@@ -486,13 +477,6 @@ if (page === "settings") {
   });
 }
 if (page === "home") {
-  const search = document.querySelector("#search"),
-    category = document.querySelector("#category");
-  const money = new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "CNY"
-  });
-
   function formatMoney() {
     for (const element of document.querySelectorAll("[data-money]")) {
       const value = Number(element.dataset.money),
@@ -504,32 +488,6 @@ if (page === "home") {
         notation: compact ? "compact" : "standard"
       }).format(value);
     }
-  }
-
-  function filter() {
-    let count = 0;
-    for (const section of document.querySelectorAll(".category")) {
-      let visible = 0,
-        yearly = 0;
-      for (const card of section.querySelectorAll(".subscription")) {
-        card.hidden =
-          (category.value && section.dataset.category !== category.value) ||
-          !`${card.dataset.name} ${section.dataset.category}`
-            .toLowerCase()
-            .includes(search.value.trim().toLowerCase());
-        if (!card.hidden) {
-          visible++;
-          yearly += Number(card.dataset.yearly);
-        }
-      }
-      section.hidden = visible === 0;
-      section.querySelector("[data-count]").textContent = visible;
-      section.querySelector("[data-yearly]").textContent = money.format(yearly);
-      count += visible;
-    }
-    document.querySelector("#empty").hidden = count > 0;
-    document.querySelector(".filters").hidden =
-      !document.querySelector(".subscription") && !search.value && !category.value;
   }
 
   function times() {
@@ -566,24 +524,12 @@ if (page === "home") {
       }
       const scroll = window.scrollY;
       const focused = document.activeElement?.closest(".renew")?.dataset;
-      const selected = category.value;
-      category.replaceChildren(
-        new Option("全部分类", ""),
-        ...[...next.querySelectorAll(".category")].map(
-          (section) => new Option(section.dataset.category, section.dataset.category),
-        ),
-      );
-      category.value = [...category.options].some((option) => option.value === selected)
-        ? selected
-        : "";
-      next.querySelector(".filters").replaceWith(document.querySelector(".filters"));
       document.querySelector("#dashboard").replaceWith(next);
       document.querySelectorAll(".renew").forEach((control) => {
         control.disabled = pending;
       });
       times();
       formatMoney();
-      filter();
       if (focused) {
         [...document.querySelectorAll(".renew")]
           .find((control) => control.dataset.id === focused.id &&
@@ -600,8 +546,6 @@ if (page === "home") {
     });
     return refreshing;
   }
-  search.addEventListener("input", filter);
-  category.addEventListener("change", filter);
   times();
   formatMoney();
   document.addEventListener("click", async (event) => {
