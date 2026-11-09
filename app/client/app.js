@@ -261,7 +261,6 @@ if (form) {
     const fieldset = form.querySelector("fieldset"),
       button = form.querySelector(".save"),
       errorBox = form.querySelector(".error");
-    // Capture settings before disabling controls, since FormData omits disabled inputs.
     const payload =
       page === "subscriptions" ? {
         categories: groups(),
