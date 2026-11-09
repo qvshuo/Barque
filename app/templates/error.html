@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>无法加载页面</h1>
+  <div class="card">
+    <p class="error" role="alert">暂时无法读取数据，请稍后重试。</p>
+    <a class="btn-outline" href="{{ request.full_path }}">重试</a>
+  </div>
+{% endblock %}

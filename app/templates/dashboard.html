@@ -1,0 +1,105 @@
+<div id="dashboard">
+  <div class="card summary">
+    {% for label,value in [('订阅总数',dashboard.summary.total_subscription_count),('即将到期',dashboard.summary.expiring_subscription_count),('本月待付',dashboard.summary.monthly_due_cny),('预计年支出',dashboard.summary.yearly_estimated_cny)] %}
+      <div>
+        <p class="muted">{{ label }}</p>
+        {% if label in ['本月待付', '预计年支出'] %}
+          <strong data-money="{{ value }}" data-compact title="{{ value|money }}" aria-label="{{ value|money }}">{{ value|money }}</strong>
+        {% else %}<strong>{{ value }}</strong>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  <div class="filters" {% if not dashboard.summary.total_subscription_count %}hidden{% endif %}>
+    <input class="input"
+           id="search"
+           type="search"
+           placeholder="搜索订阅"
+           aria-label="搜索订阅">
+    <select class="select" id="category" aria-label="筛选分类">
+      <option value="">全部分类</option>
+      {% for group in dashboard.category_groups %}
+        <option>{{ group.category_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% for group in dashboard.category_groups %}
+    <section class="category"
+             aria-label="{{ group.category_name }}"
+             data-category="{{ group.category_name }}">
+      <div class="section-heading">
+        <h2>{{ group.category_name }}</h2>
+        <span class="muted">
+          <span data-count>{{ group.subscription_count }}</span> 个订阅，约 <span data-yearly>{{ group.yearly_estimated_cny|money }}</span> / 年</span>
+      </div>
+      <div class="cards">
+        {% for item in group.subscription_items %}
+          {% set paid = item.button_state.status_kind == 'renewed' %}
+          {% set state = 'paid' if paid else 'urgent' if item.days_left == 0 else 'soon' if item.button_state.status_kind == 'renewal_pending' else 'normal' %}
+          <article class="card subscription"
+                   data-name="{{ item.name }}"
+                   data-yearly="{{ item.yearly_estimated_cny or 0 }}">
+            <header class="row">
+              <h3>{{ item.name }}</h3>
+              <span class="muted"
+                    role="img"
+                    aria-label="{{ item.name }}：续费提醒已{{ '开启' if item.notify_enabled else '关闭' }}"
+                    title="续费提醒已{{ '开启' if item.notify_enabled else '关闭' }}">
+                <svg width="16"
+                     height="16"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     aria-hidden="true">
+                  <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+                  {% if not item.notify_enabled %}
+                    <path d="m2 2 20 20" />
+                  {% endif %}
+                </svg>
+              </span>
+            </header>
+            <div>
+              <strong class="amount" data-money="{{ item.amount }}" data-currency="{{ item.currency }}">{{ item.amount|money(item.currency) }}</strong>
+              <span class="muted">/ {{ cycles[item.billing_cycle][1:] }}</span>
+            </div>
+            <div class="row">
+              <span class="muted">{{ item.renewal_date }}</span>
+              <span>{{ '今天到期' if item.days_left == 0 else (item.days_left|string + ' 天后到期') }}</span>
+            </div>
+            <progress class="{{ state }}"
+                      value="{{ 100 if item.days_left == 0 else item.progress_percent }}"
+                      max="100"
+                      aria-label="{{ item.name }} 账期进度"
+                      aria-valuetext="{{ '已付费，不再提醒' if paid else '今天到期' if item.days_left == 0 else '即将到期' if state == 'soon' else '正常账期' }}；账期进度 {{ 100 if item.days_left == 0 else item.progress_percent }}%">
+            </progress>
+            <footer class="row muted">
+              {% if item.currency != "CNY" %}
+                <span>{{ '汇率待更新' if item.amount_cny is none else '约 ' + (item.amount_cny|money) }}</span>
+              {% endif %}
+              <button class="renew"
+                      data-id="{{ item.subscription_id }}"
+                      data-payment="{{ item.payment_date }}"
+                      data-renewal="{{ item.renewal_date }}"
+                      aria-pressed="{{ 'true' if paid else 'false' }}"
+                      aria-label="{{ item.name }}：{{ '已付费，点击撤销' if paid else '标记为已续费' }}"
+                      title="{{ '点击撤销本期续费' if paid else '标记后，本期不再提醒' }}">{{ '✓ 已付费' if paid else '标记为已续费' }}</button>
+            </footer>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+  <div class="card empty"
+       id="empty"
+       {% if dashboard.summary.total_subscription_count %} hidden {% endif %}>
+    <h2>{{ '暂无订阅' if not dashboard.summary.total_subscription_count else '没有匹配的订阅' }}</h2>
+    <p class="muted"
+       {% if not dashboard.summary.total_subscription_count %} hidden {% endif %}>试试其他关键词或分类。</p>
+  </div>
+  <p class="muted timestamps">
+    上次检查：<time>{{ dashboard.summary.last_check_at or '尚未更新' }}</time> · 汇率更新：<time>{{ dashboard.summary.exchange_rate_updated_at or '尚未更新' }}</time>
+    {% if missing_rates %}
+      · 部分外币汇率暂不可用，合计暂未包含这些订阅
+    {% endif %}
+  </p>
+</div>

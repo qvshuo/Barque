@@ -1,10 +1,3 @@
-FROM node:26.13.0-alpine AS frontend
-WORKDIR /build
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm install --global npm@12.2.2 && npm ci
-COPY frontend/ ./
-RUN npm run build
-
 FROM python:3.15.2-alpine
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -16,8 +9,6 @@ RUN pip install --no-cache-dir --upgrade pip==26.3 \
     && addgroup -S -g 10001 barque && adduser -S -u 10001 -G barque barque \
     && mkdir -p data && chown barque:barque data
 COPY app ./app
-COPY frontend/SHADCN-LICENSE ./frontend/SHADCN-LICENSE
-COPY --from=frontend /build/dist ./frontend/dist
 USER barque:barque
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

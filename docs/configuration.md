@@ -10,7 +10,7 @@
 | 提前提醒天数 | 7 天 | 建议保留，取决于续费处理习惯 |
 | 后台检查间隔 | 3600 秒 | 可进一步固定为每小时；普通订阅按天计费，通常不需要用户调整秒数 |
 
-首页 `/` 用于查看订阅、搜索筛选和标记续费。「管理订阅」`#subscriptions` 按分类内联编辑，直接添加、修改、上下移动或删除分类和订阅，统一保存后生效；管理页不重复显示首页统计和账期进度。批量保存具有事务保护，其他页面修改订阅后会提示重新加载，避免覆盖较新的数据。「设置」`#settings` 提供应用设置与备份恢复。三个导航入口共用全站密码保护，登录一次即可访问。
+首页 `/` 用于查看订阅、搜索筛选和标记续费。「管理订阅」`/?page=subscriptions#subscriptions` 按分类内联编辑，直接添加、修改、上下移动或删除分类和订阅，统一保存后生效；管理页不重复显示首页统计和账期进度。批量保存具有事务保护，其他页面修改订阅后会提示重新加载，避免覆盖较新的数据。「设置」`/?page=settings#settings` 提供应用设置与备份恢复。三个导航入口共用全站密码保护，登录一次即可访问。
 
 ## 已固定、未提供设置入口
 
@@ -24,7 +24,7 @@
 | 通知去重 | 每个订阅、每个账期成功提醒一次；关闭提醒或标记已续费后不发送；下一账期恢复检查 |
 | 已续费标记 | 只作用于当前账期，不改变长期提醒开关；可点击撤销 |
 | 账期推进 | 按原付款日期自动推进，处理月末与闰年；不要求手动修改下一续费日期 |
-| 新增订阅初值 | 每月、今天、CNY、金额 0、提醒开启；保存前可修改 |
+| 新增订阅初值 | 每月、今天、币种留空、金额 0、提醒开启；保存前可修改 |
 | 登录有效期 | 登录后 7 天；退出登录立即撤销本次会话；Compose 密码改变后撤销所有会话 |
 | 登录尝试限制 | 同一进程累计 10 次失败后限制，按 60 秒窗口恢复；成功登录清空失败记录 |
 | 服务端口 | 容器内 8080；宿主机端口在 Compose 中映射 |
@@ -62,23 +62,32 @@ Bark 测试按钮直接使用当前输入地址，无须保存；测试本身不
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m unittest discover -s tests -v
-cd frontend
-npm ci
-npm run build
-npx playwright install chromium
-BARQUE_TEST_PYTHON=../.venv/bin/python npm test
+.venv/bin/playwright install chromium
+.venv/bin/python -m tests.browser -v
+.venv/bin/ruff check app tests tools
+.venv/bin/ruff format --check app tests tools
 ```
 
-浏览器测试启动临时数据库及本地测试服务，不启动调度线程，不向真实 Bark 发送消息。测试涵盖筛选、标记续费、Select 键盘与焦点、日期弹层、Switch、未保存更改、Bark 草稿测试和 JSON 配置导入导出。`BARQUE_TEST_URL` 可指定**隔离的测试实例**，`BARQUE_TEST_PASSWORD` 指定测试密码；测试会覆盖该实例的配置，不应指向日常使用的数据库。
+浏览器测试启动临时数据库及本地测试服务，不启动调度线程，不向真实 Bark 发送消息。测试涵盖搜索和分类筛选、续费标记、原生日期和币种输入、提醒开关、分类与订阅的增删排序、批量保存及版本冲突、未保存更改保护、历史记录与刷新、Bark 草稿测试、认证和 JSON 配置导入导出，并检查移动端、键盘焦点和 HTML 转义。无需指定外部服务或真实数据库。
 
-组件按 [shadcn/ui 官方 Base UI 实现](https://ui.shadcn.com/r/styles/base-nova/select.json)及[迁移规范](https://github.com/shadcn-ui/ui/blob/main/skills/migrate-radix-to-base/universal-patterns.md)迁移，保留现有样式。Calendar（react-day-picker）、图表（Recharts）和 Toast（Sonner）继续使用原来的第三方库。
+## 页面与静态资源
 
-Python 格式与静态检查使用 Ruff，前端格式检查使用 Prettier，配置分别位于 `ruff.toml` 和 `.prettierrc.json`；它们仅作为开发工具，不加入容器运行依赖。前端类型检查同时检查未使用的局部变量和参数。
+Flask 保持原有 HTTP 服务和 JSON API，Jinja2 渲染首屏，原生 ES Modules 处理交互。导航使用普通页面链接；旧版 `/#subscriptions`、`/#settings` 和 `/admin` 入口继续可用。首页每 60 秒以及返回前台时局部更新，表单保存继续复用原有 API 和订阅版本号，不覆盖其他窗口已提交的数据。
+
+模板位于 `app/templates`，可维护的 JS/CSS 位于 `app/client`，已压缩的生产资源和 Basecoat 0.3.11 预构建 CSS 位于 `app/static`。Dialog、Select、日期和表单使用浏览器原生能力，不加载未使用的 Basecoat 组件脚本。页面自动转义，动态文本通过 DOM 文本属性写入；模板片段只解析同源服务端 HTML。
+
+修改 JS/CSS 后更新已提交的生产资源：
 
 ```sh
-ruff check app tests
-ruff format --check app tests
-npx prettier --check 'frontend/src/**/*.{ts,tsx,css}' 'frontend/tests/**/*.ts' 'frontend/*.{json,ts,mjs}'
+.venv/bin/python tools/prepare_assets.py
 ```
+
+该脚本仅使用开发依赖中的 Python 压缩器，并生成确定性的 gzip 文件。部署和容器启动不运行构建，也不需要 Node、npm 或开发依赖。Basecoat MIT 许可保留在 `app/static/vendor/BASECOAT-LICENSE`，上游资源来源为 [Basecoat 0.3.11](https://www.jsdelivr.com/package/npm/basecoat-css?version=0.3.11)。
+
+HTML、JSON 和错误响应使用 `Cache-Control: no-store`。文本资源协商 gzip，响应包含 `Vary: Accept-Encoding`；JS/CSS 优先使用本地预压缩文件。静态资源使用内容摘要版本号，仅与当前内容一致的版本 URL 长期缓存；旧版本号和未版本化入口使用 ETag 验证。图片不再 gzip。HEAD、304 和 Range 保留对应 HTTP 语义。
+
+生产环境继续执行 `python -m app.main`，由 Waitress 提供服务。Python 依赖、监听地址、环境变量和持久化目录不变，无需迁移数据库或配置。
+
+镜像大小、生产容器、数据卷升级与会话保留的实测结果及 Docker 验证命令见 [性能报告](performance.md#服务内存与-docker)。

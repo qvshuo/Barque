@@ -1,0 +1,208 @@
+{
+  "environment": {
+    "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+    "python": "3.15.2",
+    "browser": "156.0.8078.4",
+    "viewport": "1440x1000",
+    "network": "40 ms latency, 10 Mibit/s",
+    "cpu": "4x slowdown",
+    "runs": 5,
+    "subscriptions": 7
+  },
+  "before": {
+    "source": {
+      "files": 27,
+      "lines": 3839,
+      "maintained_files": 26,
+      "maintained_lines": 3209
+    },
+    "assets": {
+      "js": {
+        "raw": 922513,
+        "gzip": 289398
+      },
+      "css": {
+        "raw": 51995,
+        "gzip": 9288
+      },
+      "images": {
+        "raw": 337068,
+        "gzip": 334743
+      }
+    },
+    "idle_rss_kib": 77600,
+    "pages": {
+      "home": {
+        "cold": {
+          "fcp": 572,
+          "lcp": 572,
+          "html": 772,
+          "htmlTransferred": 772,
+          "requests": 6,
+          "network_requests": 6,
+          "transfer_bytes": 524928,
+          "heap_bytes": 8761924,
+          "interaction_ms": 16.4
+        },
+        "warm": {
+          "fcp": 180,
+          "lcp": 180,
+          "html": 772,
+          "htmlTransferred": 772,
+          "requests": 6,
+          "network_requests": 4,
+          "transfer_bytes": 7942,
+          "heap_bytes": 14000500,
+          "interaction_ms": 12
+        }
+      },
+      "subscriptions": {
+        "cold": {
+          "fcp": 564,
+          "lcp": 564,
+          "html": 772,
+          "htmlTransferred": 772,
+          "requests": 7,
+          "network_requests": 7,
+          "transfer_bytes": 523639,
+          "heap_bytes": 9582196,
+          "interaction_ms": 28.3
+        },
+        "warm": {
+          "fcp": 172,
+          "lcp": 172,
+          "html": 772,
+          "htmlTransferred": 772,
+          "requests": 7,
+          "network_requests": 5,
+          "transfer_bytes": 6653,
+          "heap_bytes": 16700572,
+          "interaction_ms": 22.7
+        }
+      },
+      "settings": {
+        "cold": {
+          "fcp": 572,
+          "lcp": 648,
+          "html": 772,
+          "htmlTransferred": 772,
+          "requests": 6,
+          "network_requests": 6,
+          "transfer_bytes": 520274,
+          "heap_bytes": 6601924,
+          "interaction_ms": 9.5
+        },
+        "warm": {
+          "fcp": 168,
+          "lcp": 232,
+          "html": 772,
+          "htmlTransferred": 772,
+          "requests": 6,
+          "network_requests": 4,
+          "transfer_bytes": 3288,
+          "heap_bytes": 11134924,
+          "interaction_ms": 16.1
+        }
+      }
+    },
+    "operations_rss_kib": 78400
+  },
+  "after": {
+    "source": {
+      "files": 10,
+      "lines": 1357,
+      "maintained_files": 10,
+      "maintained_lines": 1357
+    },
+    "assets": {
+      "js": {
+        "raw": 15957,
+        "gzip": 5203
+      },
+      "css": {
+        "raw": 143455,
+        "gzip": 14457
+      },
+      "images": {
+        "raw": 69551,
+        "gzip": 69586
+      }
+    },
+    "idle_rss_kib": 77808,
+    "pages": {
+      "home": {
+        "cold": {
+          "fcp": 196,
+          "lcp": 196,
+          "html": 20228,
+          "htmlTransferred": 2608,
+          "requests": 5,
+          "network_requests": 5,
+          "transfer_bytes": 60804,
+          "heap_bytes": 2773444,
+          "interaction_ms": 6.4
+        },
+        "warm": {
+          "fcp": 76,
+          "lcp": 76,
+          "html": 20228,
+          "htmlTransferred": 2608,
+          "requests": 5,
+          "network_requests": 1,
+          "transfer_bytes": 3182,
+          "heap_bytes": 4776120,
+          "interaction_ms": 17.4
+        }
+      },
+      "subscriptions": {
+        "cold": {
+          "fcp": 208,
+          "lcp": 208,
+          "html": 39349,
+          "htmlTransferred": 3322,
+          "requests": 5,
+          "network_requests": 5,
+          "transfer_bytes": 61518,
+          "heap_bytes": 3235688,
+          "interaction_ms": 10
+        },
+        "warm": {
+          "fcp": 92,
+          "lcp": 92,
+          "html": 39349,
+          "htmlTransferred": 3322,
+          "requests": 5,
+          "network_requests": 1,
+          "transfer_bytes": 3896,
+          "heap_bytes": 4792744,
+          "interaction_ms": 7.3
+        }
+      },
+      "settings": {
+        "cold": {
+          "fcp": 180,
+          "lcp": 180,
+          "html": 5358,
+          "htmlTransferred": 1863,
+          "requests": 5,
+          "network_requests": 5,
+          "transfer_bytes": 60059,
+          "heap_bytes": 2936740,
+          "interaction_ms": 12.8
+        },
+        "warm": {
+          "fcp": 72,
+          "lcp": 72,
+          "html": 5358,
+          "htmlTransferred": 1863,
+          "requests": 5,
+          "network_requests": 1,
+          "transfer_bytes": 2437,
+          "heap_bytes": 4615508,
+          "interaction_ms": 9.8
+        }
+      }
+    },
+    "operations_rss_kib": 79936
+  }
+}

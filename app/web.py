@@ -1,10 +1,13 @@
-"""Same-origin JSON API and the compiled React application."""
+"""Same-origin JSON API, server-rendered pages and local static assets."""
 
+import gzip
+import hashlib
 import os
 from dataclasses import asdict
+from functools import lru_cache
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
 from werkzeug.exceptions import HTTPException
 
 from app.auth import COOKIE_NAME, SESSION_SECONDS, Authentication
@@ -15,18 +18,61 @@ from app.renewals import build_toggle_response, cycle_key
 from app.scheduler import Scheduler
 from app.subscriptions import find_subscription_item
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+CYCLES = {"week": "每周", "month": "每月", "quarter": "每季度", "year": "每年"}
 
 
 def create_app(
     database: Database,
     scheduler: Scheduler,
-    frontend_dist: Path | None = None,
+    static_dir: Path | None = None,
     initial_password: str | None = None,
 ) -> Flask:
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
-    dist = frontend_dist or FRONTEND_DIST
+    dist = static_dir or STATIC_DIR
+
+    @lru_cache(maxsize=64)
+    def asset_version(filename):
+        return hashlib.sha256((dist / filename).read_bytes()).hexdigest()[:16]
+
+    def asset(filename):
+        return url_for("assets", filename=filename, v=asset_version(filename))
+
+    def money(value, currency="CNY"):
+        # Formatting only; renewal and conversion calculations stay in the business modules.
+        symbol = {"CNY": "¥", "USD": "US$", "EUR": "€", "GBP": "£", "JPY": "JP¥", "HKD": "HK$"}.get(
+            currency, currency + " "
+        )
+        digits = (
+            0
+            if currency
+            in {
+                "JPY",
+                "KRW",
+                "VND",
+                "CLP",
+                "ISK",
+                "XAF",
+                "XOF",
+                "XPF",
+                "BIF",
+                "DJF",
+                "GNF",
+                "KMF",
+                "PYG",
+                "RWF",
+                "UGX",
+                "VUV",
+            }
+            else 3
+            if currency in {"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"}
+            else 2
+        )
+        return f"{symbol}{value:,.{digits}f}"
+
+    app.jinja_env.filters["money"] = money
+    app.jinja_env.globals.update(asset=asset, cycles=CYCLES)
     auth = Authentication(database, initial_password)
 
     @app.before_request
@@ -41,7 +87,7 @@ def create_app(
 
     @app.before_request
     def require_password():
-        # The shell and its assets only render the password form before login.
+        # Public pages render only the password form before login.
         public = {"index", "assets", "icons", "auth_status", "login"}
         if request.endpoint not in public and not auth.authenticated(
             request.cookies.get(COOKIE_NAME)
@@ -62,6 +108,8 @@ def create_app(
 
     @app.errorhandler(HTTPException)
     def http_error(error):
+        if request.endpoint == "index":
+            return render_template("error.html", page="error"), error.code
         return jsonify(error=error.description), error.code
 
     def body():
@@ -248,17 +296,59 @@ def create_app(
     @app.get("/admin")
     @app.get("/admin/")
     def index():
-        return send_from_directory(dist, "index.html", max_age=0)
+        if not auth.authenticated(request.cookies.get(COOKIE_NAME)):
+            return render_template("login.html", page="login")
+        page = request.args.get(
+            "page", "subscriptions" if request.path.startswith("/admin") else "home"
+        )
+        if page == "settings":
+            return render_template(
+                "settings.html", page=page, settings=asdict(database.get_config().app)
+            )
+        if page == "subscriptions":
+            blank = dict(
+                id="",
+                name="",
+                billing_cycle="month",
+                payment_date="",
+                amount=0,
+                currency="",
+                notify_enabled=True,
+            )
+            return render_template(
+                "subscriptions.html",
+                page=page,
+                groups=database.get_subscription_groups(),
+                currencies=sorted(database.supported_currencies().items()),
+                blank_group={"name": "", "subscriptions": []},
+                blank_subscription=blank,
+            )
+        dashboard_data = scheduler.get_dashboard(database.get_config())
+        missing_rates = any(
+            item["amount_cny"] is None
+            for group in dashboard_data["category_groups"]
+            for item in group["subscription_items"]
+        )
+        return render_template(
+            "dashboard.html"
+            if request.headers.get("X-Barque-Fragment") == "dashboard"
+            else "home.html",
+            page="home",
+            dashboard=dashboard_data,
+            missing_rates=missing_rates,
+        )
 
     @app.get("/assets/<path:filename>")
     def assets(filename):
         compressed = (
             filename.endswith((".js", ".css"))
+            and not request.headers.get("Range")
             and request.accept_encodings["gzip"] > 0
-            and (dist / "assets" / (filename + ".gz")).is_file()
+            and request.accept_encodings["gzip"] >= request.accept_encodings["identity"]
+            and (dist / (filename + ".gz")).is_file()
         )
         response = send_from_directory(
-            dist / "assets", filename + ".gz" if compressed else filename, max_age=31536000
+            dist, filename + ".gz" if compressed else filename, max_age=0
         )
         if compressed:
             response.headers["Content-Encoding"] = "gzip"
@@ -267,20 +357,69 @@ def create_app(
                 if filename.endswith(".css")
                 else "text/javascript; charset=utf-8"
             )
-        response.vary.add("Accept-Encoding")
-        response.cache_control.immutable = True
+        if filename.endswith((".js", ".css")):
+            response.vary.add("Accept-Encoding")
+        # Only the URL for this exact content can receive immutable caching.
+        if response.status_code in {200, 304} and request.args.get("v") == asset_version(filename):
+            response.cache_control.max_age = 31536000
+            response.cache_control.immutable = True
+            response.cache_control.no_cache = None
         return response
 
     @app.get("/logo.png")
     @app.get("/favicon.ico")
     @app.get("/apple-touch-icon.png")
     def icons():
-        return send_from_directory(dist, request.path.lstrip("/"))
+        filename = "logo.webp" if request.path == "/logo.png" else request.path.lstrip("/")
+        return send_from_directory(dist, filename, max_age=0)
 
     @app.after_request
     def response_headers(response):
-        if request.endpoint not in {"assets", "icons"}:
+        if request.endpoint not in {"assets", "icons"} or response.status_code >= 400:
             response.headers["Cache-Control"] = "no-store"
+        compressible = response.mimetype in {
+            "text/html",
+            "text/css",
+            "text/javascript",
+            "application/javascript",
+            "application/json",
+            "image/svg+xml",
+        }
+        encodings = request.accept_encodings
+        names = {name.lower() for name, _quality in encodings}
+        identity_allowed = not (
+            ("identity" in names and encodings["identity"] == 0)
+            or ("*" in names and encodings["*"] == 0 and "identity" not in names)
+        )
+        if (
+            response.status_code == 200
+            and not response.headers.get("Content-Encoding")
+            and not identity_allowed
+            and not (compressible and encodings["gzip"] > 0)
+        ):
+            response.close()
+            response = jsonify(error="不支持请求的内容编码")
+            response.status_code = 406
+            response.headers["Cache-Control"] = "no-store"
+            compressible = True
+        if compressible:
+            response.vary.add("Accept-Encoding")
+            if (
+                response.status_code == 200
+                and not response.headers.get("Content-Encoding")
+                and not response.headers.get("Content-Range")
+                and request.accept_encodings["gzip"] > 0
+                and (not identity_allowed or encodings["gzip"] >= encodings["identity"])
+            ):
+                response.direct_passthrough = False
+                data = response.get_data()
+                if len(data) >= 500 or not identity_allowed:
+                    packed = gzip.compress(data, compresslevel=6, mtime=0)
+                    if len(packed) < len(data) or not identity_allowed:
+                        response.set_data(packed)
+                        response.headers["Content-Encoding"] = "gzip"
+                        if response.get_etag()[0]:
+                            response.set_etag(response.get_etag()[0], weak=True)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"

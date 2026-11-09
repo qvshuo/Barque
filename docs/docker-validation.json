@@ -1,0 +1,272 @@
+{
+  "environment": {
+    "host": "RHEL10",
+    "architecture": "x86_64",
+    "docker": "29.9.1",
+    "network": "none; HTTP requests run on container loopback",
+    "subscriptions": 7,
+    "production_entrypoint": "python -m app.main; eight Waitress threads and scheduler enabled"
+  },
+  "images": {
+    "before": {
+      "tag": "barque-migration-before:validation-4czafm",
+      "id": "sha256:34215e6eb506a906934a24a047f9c0e4412d5b57e50ea6c40f5de8db51442454",
+      "size_bytes": 119524611,
+      "architecture": "amd64",
+      "os": "linux",
+      "user": "barque:barque",
+      "rootfs_layers": [
+        "sha256:75f1d9657d880da5f75298e8f40e9928bb6e260c50d26f97af196845307e3064",
+        "sha256:e61c8fdd71b8d037c5f2fd4009fc6e7969bd78930721e396bc2fb276f8e8636d",
+        "sha256:1785d0ff8cbc36b58de0c0186677afc589ed138f6b8ea8d99c18e6526c418dac",
+        "sha256:ba5aa3c157e6d705f195f364b7b7f0728cc14fad95fc1d5bce9715ce09b9eb7c",
+        "sha256:cc709805f88840297ebe66b1bc43c963e4e5b6fe5f68272e014d7e9e9eca8a99",
+        "sha256:34244af73cf007338316473e162167f33960b239ea9c23ba647561c7968b270b",
+        "sha256:a12f9c04c59ee2f4a66d6ccfb5708bc8b81d2483c9b29f2e89f6ee53aa251520",
+        "sha256:a75a681242472de25d1f38804814b0827e23490cb249e1872ab8351e4887b95f",
+        "sha256:8a0bf2f213663442f4148d9f4bb847b0318fc66586cda19d778d7a96201bc0d1",
+        "sha256:07cbf371c05c2b0d88fbc4ddead3e5abff232b23b4d9dee4ce8caa9cb6caa615"
+      ]
+    },
+    "after": {
+      "tag": "barque-migration-after:validation-4czafm",
+      "id": "sha256:42bab21fbe15f1aeabd6ed9b8fcf030871abae023e3634cf24700667162b2892",
+      "size_bytes": 117383326,
+      "architecture": "amd64",
+      "os": "linux",
+      "user": "barque:barque",
+      "rootfs_layers": [
+        "sha256:75f1d9657d880da5f75298e8f40e9928bb6e260c50d26f97af196845307e3064",
+        "sha256:e61c8fdd71b8d037c5f2fd4009fc6e7969bd78930721e396bc2fb276f8e8636d",
+        "sha256:1785d0ff8cbc36b58de0c0186677afc589ed138f6b8ea8d99c18e6526c418dac",
+        "sha256:ba5aa3c157e6d705f195f364b7b7f0728cc14fad95fc1d5bce9715ce09b9eb7c",
+        "sha256:cc709805f88840297ebe66b1bc43c963e4e5b6fe5f68272e014d7e9e9eca8a99",
+        "sha256:34244af73cf007338316473e162167f33960b239ea9c23ba647561c7968b270b",
+        "sha256:a12f9c04c59ee2f4a66d6ccfb5708bc8b81d2483c9b29f2e89f6ee53aa251520",
+        "sha256:42a3253203329a9723cdabc62b8f20fc7104f6a4207e4f7e41bfc9cd43718736"
+      ]
+    }
+  },
+  "runtime": {
+    "before": {
+      "health": "healthy",
+      "idle": {
+        "rss_kib_samples": [
+          40996,
+          40996,
+          40996,
+          40996,
+          40996
+        ],
+        "rss_kib_median": 40996
+      },
+      "checks": {
+        "checks": [
+          "authentication isolation",
+          "login and session cookie",
+          "production pages, health and dynamic no-store",
+          "asset integrity, gzip, HEAD and ETag/304 through Waitress",
+          "batch edit/conflict, CRUD, sorting, settings, import/export, invalid Bark, renewal and undo"
+        ],
+        "subscription_count": 7
+      },
+      "operations": {
+        "rss_kib_samples": [
+          41152,
+          41152,
+          41152,
+          41152,
+          41152
+        ],
+        "rss_kib_median": 41152
+      },
+      "schema": {
+        "schema": [
+          [
+            "table",
+            "notification_attempts",
+            "notification_attempts",
+            "CREATE TABLE notification_attempts (\n                    cycle_key TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('pending','success','failed')),\n                    attempts INTEGER NOT NULL DEFAULT 0, updated_at REAL NOT NULL, retry_at REAL NOT NULL,\n                    error TEXT\n                )"
+          ],
+          [
+            "table",
+            "renewals",
+            "renewals",
+            "CREATE TABLE renewals (cycle_key TEXT PRIMARY KEY)"
+          ],
+          [
+            "table",
+            "sessions",
+            "sessions",
+            "CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, expires_at REAL NOT NULL)"
+          ],
+          [
+            "table",
+            "settings",
+            "settings",
+            "CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id = 1), value TEXT NOT NULL)"
+          ],
+          [
+            "table",
+            "state",
+            "state",
+            "CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+          ],
+          [
+            "table",
+            "subscriptions",
+            "subscriptions",
+            "CREATE TABLE subscriptions (\n                    id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,\n                    billing_cycle TEXT NOT NULL, payment_date TEXT NOT NULL,\n                    amount REAL NOT NULL CHECK(amount >= 0), currency TEXT NOT NULL,\n                    notify_enabled INTEGER NOT NULL CHECK(notify_enabled IN (0, 1))\n                )"
+          ]
+        ],
+        "user_version": 1,
+        "integrity": "ok"
+      },
+      "runtime_tools": {
+        "uid": 10001,
+        "node": null,
+        "npm": null
+      },
+      "restart": {
+        "checks": [
+          "authentication isolation",
+          "existing session, settings, seven subscriptions, order and renewal marker persist",
+          "production pages, health and dynamic no-store",
+          "asset integrity, gzip, HEAD and ETag/304 through Waitress"
+        ],
+        "subscription_count": 7
+      }
+    },
+    "after": {
+      "health": "healthy",
+      "idle": {
+        "rss_kib_samples": [
+          40932,
+          40932,
+          40932,
+          40932,
+          40932
+        ],
+        "rss_kib_median": 40932
+      },
+      "checks": {
+        "checks": [
+          "authentication isolation",
+          "login and session cookie",
+          "production pages, health and dynamic no-store",
+          "asset integrity, gzip, HEAD and ETag/304 through Waitress",
+          "SSR, sensitive-page isolation, dynamic gzip, Range, binary and 406",
+          "batch edit/conflict, CRUD, sorting, settings, import/export, invalid Bark, renewal and undo"
+        ],
+        "subscription_count": 7
+      },
+      "operations": {
+        "rss_kib_samples": [
+          41268,
+          41268,
+          41268,
+          41268,
+          41268
+        ],
+        "rss_kib_median": 41268
+      },
+      "schema": {
+        "schema": [
+          [
+            "table",
+            "notification_attempts",
+            "notification_attempts",
+            "CREATE TABLE notification_attempts (\n                    cycle_key TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('pending','success','failed')),\n                    attempts INTEGER NOT NULL DEFAULT 0, updated_at REAL NOT NULL, retry_at REAL NOT NULL,\n                    error TEXT\n                )"
+          ],
+          [
+            "table",
+            "renewals",
+            "renewals",
+            "CREATE TABLE renewals (cycle_key TEXT PRIMARY KEY)"
+          ],
+          [
+            "table",
+            "sessions",
+            "sessions",
+            "CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, expires_at REAL NOT NULL)"
+          ],
+          [
+            "table",
+            "settings",
+            "settings",
+            "CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id = 1), value TEXT NOT NULL)"
+          ],
+          [
+            "table",
+            "state",
+            "state",
+            "CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+          ],
+          [
+            "table",
+            "subscriptions",
+            "subscriptions",
+            "CREATE TABLE subscriptions (\n                    id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,\n                    billing_cycle TEXT NOT NULL, payment_date TEXT NOT NULL,\n                    amount REAL NOT NULL CHECK(amount >= 0), currency TEXT NOT NULL,\n                    notify_enabled INTEGER NOT NULL CHECK(notify_enabled IN (0, 1))\n                )"
+          ]
+        ],
+        "user_version": 1,
+        "integrity": "ok"
+      },
+      "runtime_tools": {
+        "uid": 10001,
+        "node": null,
+        "npm": null
+      },
+      "restart": {
+        "checks": [
+          "authentication isolation",
+          "existing session, settings, seven subscriptions, order and renewal marker persist",
+          "production pages, health and dynamic no-store",
+          "asset integrity, gzip, HEAD and ETag/304 through Waitress",
+          "SSR, sensitive-page isolation, dynamic gzip, Range, binary and 406"
+        ],
+        "subscription_count": 7
+      }
+    }
+  },
+  "upgrade": {
+    "checks": [
+      "authentication isolation",
+      "existing session, settings, seven subscriptions, order and renewal marker persist",
+      "production pages, health and dynamic no-store",
+      "asset integrity, gzip, HEAD and ETag/304 through Waitress",
+      "SSR, sensitive-page isolation, dynamic gzip, Range, binary and 406"
+    ],
+    "subscription_count": 7,
+    "schema_unchanged": true
+  },
+  "success": true,
+  "cleanup": {
+    "containers_removed": [
+      "barque-validation-c460b0d626-before",
+      "barque-validation-c460b0d626-after",
+      "barque-validation-c460b0d626-upgrade"
+    ],
+    "volumes_removed": [
+      "barque-validation-c460b0d626-before-data",
+      "barque-validation-c460b0d626-after-data"
+    ],
+    "verified": true
+  },
+  "source": {
+    "before_commit": "08d995537a653695f090b2d0e3aa869fa8b8d158",
+    "after_context_sha256": "3d76733b7e0a1a4c6e3c13524483fa1aa843d4baffd2a2d77d5bdcd206a2fd18",
+    "base_image": "python:3.15.2-alpine",
+    "shared_rootfs_prefix_layers": 7
+  },
+  "python_tests": {
+    "before": {
+      "passed": 17,
+      "seconds": 2.248
+    },
+    "after": {
+      "passed": 24,
+      "seconds": 3.417
+    }
+  }
+}

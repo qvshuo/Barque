@@ -7,11 +7,10 @@ README.md
 AGENTS.md
 docs/
 .git/
-frontend/node_modules/
-frontend/dist/
-frontend/test-results/
-frontend/playwright-report/
 tests/
 docker-compose.yml
 
 .venv/
+app/client/
+tools/
+requirements-dev.txt

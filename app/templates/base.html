@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color"
+          content="#ffffff"
+          media="(prefers-color-scheme: light)">
+    <meta name="theme-color"
+          content="#0a0a0a"
+          media="(prefers-color-scheme: dark)">
+    <title>Barque</title>
+    <link rel="icon" href="{{ asset('favicon.ico') }}">
+    <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/basecoat-0.3.11.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('app.css') }}">
+    <script type="module" src="{{ asset('app.js') }}"></script>
+  </head>
+  <body data-page="{{ page }}">
+    {% if page != "login" %}
+      <header class="site-header">
+        <div class="header-inner">
+          <a class="brand" href="/" aria-label="Barque 首页">
+            <img src="{{ asset('logo.webp') }}" width="32" height="32" alt="">
+            <span>Barque</span>
+          </a>
+          <nav aria-label="主导航">
+            {% for key, label, href in [('home','首页','/'),('subscriptions','管理订阅','/?page=subscriptions#subscriptions'),('settings','设置','/?page=settings#settings')] %}
+              <a class="btn-ghost"
+                 href="{{ href }}"
+                 {% if page == key %} aria-current="page" {% endif %}>{{ label }}</a>
+            {% endfor %}
+          </nav>
+          <button class="btn-icon-ghost" id="logout" aria-label="退出登录">
+            <svg width="20"
+                 height="20"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="2"
+                 aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9" />
+            </svg>
+          </button>
+        </div>
+      </header>
+    {% endif %}
+    <main {% if page == 'login' %} class="login" {% endif %}>
+      {% block content %}{% endblock %}
+    </main>
+    <div id="feedback" role="status" aria-live="polite" hidden></div>
+    <dialog id="confirm"
+            class="dialog"
+            role="alertdialog"
+            aria-labelledby="confirm-title"
+            aria-describedby="confirm-description">
+      <article>
+        <header>
+          <h2 id="confirm-title"></h2>
+          <p id="confirm-description"></p>
+        </header>
+        <footer>
+          <button type="button" class="btn-outline" id="confirm-cancel" autofocus>继续编辑</button>
+          <button type="button" class="btn-destructive" id="confirm-ok">放弃更改</button>
+        </footer>
+      </article>
+    </dialog>
+  </body>
+</html>

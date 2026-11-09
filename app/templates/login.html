@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+  <form id="login-form">
+    <input class="input"
+           id="access-password"
+           name="password"
+           type="password"
+           aria-label="密码"
+           placeholder="密码"
+           autocomplete="current-password"
+           required
+           maxlength="256"
+           autofocus>
+    <p class="error" role="alert" hidden></p>
+    <button class="btn" type="submit">登录</button>
+  </form>
+{% endblock %}
