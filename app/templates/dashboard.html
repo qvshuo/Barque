@@ -89,7 +89,7 @@
   <p class="muted timestamps">
     上次检查：<time>{{ dashboard.summary.last_check_at or '尚未更新' }}</time> · 汇率更新：<time>{{ dashboard.summary.exchange_rate_updated_at or '尚未更新' }}</time>
     {% if missing_rates %}
-      · 部分外币汇率暂不可用，合计暂未包含这些订阅
+      · 部分汇率暂不可用，金额及占比仅统计已换算的订阅
     {% endif %}
   </p>
 </div>

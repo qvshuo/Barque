@@ -154,6 +154,43 @@ class BrowserTests(unittest.TestCase):
         expect(self.page.locator(".summary strong")).to_have_text(["0", "0", "¥0.00", "¥0.00"])
         expect(self.page.get_by_role("heading", name="暂无订阅", exact=True)).to_be_visible()
 
+    def test_category_stats_missing_rates_and_long_names(self):
+        config = configuration()
+        names = ["Category" * 12, "超长分类名称" * 16, "空分类"]
+        config["categories"] = names
+        config["subscriptions"] = config["subscriptions"][:3]
+        for index, item in enumerate(config["subscriptions"]):
+            item["category"] = names[0 if index < 2 else 1]
+            item["amount"] = 999999999.99
+        config["subscriptions"][1]["currency"] = "ZZZ"
+        self.assertTrue(self.api.put("/api/configuration", headers=HEADERS, data=config).ok)
+        for width in (320, 375, 390, 1440):
+            for theme in ("light", "dark"):
+                with self.subTest(width=width, theme=theme):
+                    self.page.set_viewport_size({"width": width, "height": 1000})
+                    self.page.emulate_media(color_scheme=theme)
+                    self.page.goto("/")
+                    expect(self.page.locator(".category")).to_have_count(2)
+                    expect(self.page.locator(".category-title .muted")).to_have_text(["2", "1"])
+                    for stats in self.page.locator(".category-stats").all():
+                        expect(stats).to_contain_text("占比 50.0%")
+                    expect(
+                        self.page.get_by_text(
+                            "部分汇率暂不可用，金额及占比仅统计已换算的订阅", exact=False
+                        )
+                    ).to_have_count(1)
+                    expect(self.page.get_by_text("汇率待更新", exact=True)).to_be_visible()
+                    self.assertTrue(
+                        self.page.locator(".section-heading").evaluate_all(
+                            "els => els.every(el => el.scrollWidth <= el.clientWidth)"
+                        )
+                    )
+                    self.assertTrue(
+                        self.page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                    )
+        self.navigate("订阅")
+        expect(self.page.get_by_role("region", name="空分类", exact=True)).to_be_visible()
+
     def test_native_fields_guard_and_unknown_currency(self):
         self.navigate("订阅")
         group = self.page.get_by_role("group", name="订阅1", exact=True)
