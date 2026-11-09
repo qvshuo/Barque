@@ -12,7 +12,7 @@ from waitress.adjustments import Adjustments
 from waitress.proxy_headers import proxy_headers_middleware
 
 from app.bark import send_bark_notification
-from app.config import AppConfig, SubscriptionConfig
+from app.config import AppConfig, SubscriptionConfig, validate_subscription_id
 from app.database import Database, SubscriptionConflictError
 from app.exchange import ExchangeService
 from app.main import main
@@ -258,23 +258,42 @@ class DatabaseTests(unittest.TestCase):
             403,
         )
 
-    def test_json_import_failure_is_atomic_and_old_exports_still_work(self):
-        self.save(asdict(subscription()))
+    def test_subscription_ids_and_atomic_validation(self):
+        valid = "0123456789abcdef" * 2
+        self.assertEqual(validate_subscription_id(valid), valid)
+        self.save(asdict(subscription(id=valid)))
         before = self.db.export_config()
-        invalid = {
-            **before,
-            "subscriptions": [
-                *before["subscriptions"],
-                {**before["subscriptions"][0], "id": "invalid"},
-            ],
-        }
-        with self.assertRaises(ValueError):
-            self.db.import_config(invalid)
+        self.db.import_config(before)
         self.assertEqual(self.db.export_config(), before)
-        legacy = {key: value for key, value in before.items() if key != "categories"}
-        legacy["subscriptions"][0]["id"] = "b" * 16
-        self.db.import_config(legacy)
-        self.assertEqual(self.db.export_config()["subscriptions"][0]["id"], "b" * 16)
+        for invalid_id in (
+            "a" * 16,
+            "a" * 31,
+            "a" * 33,
+            "A" * 32,
+            "g" * 32,
+            "a" * 32 + "\n",
+            "",
+            None,
+            123,
+        ):
+            with self.subTest(subscription_id=invalid_id):
+                with self.assertRaises(ValueError):
+                    validate_subscription_id(invalid_id)
+                invalid = {
+                    **before,
+                    "subscriptions": [
+                        *before["subscriptions"],
+                        {**before["subscriptions"][0], "id": invalid_id},
+                    ],
+                }
+                with self.assertRaises(ValueError):
+                    self.db.import_config(invalid)
+                self.assertEqual(self.db.export_config(), before)
+                groups = self.db.get_subscription_groups()
+                groups["categories"][0]["subscriptions"][0]["id"] = invalid_id
+                with self.assertRaises(ValueError):
+                    self.db.save_subscription_groups(groups)
+                self.assertEqual(self.db.export_config(), before)
 
     @patch("app.scheduler.today_in_timezone", return_value=date(2024, 2, 22))
     @patch("app.scheduler.local_now", return_value=datetime(2024, 2, 22, 9))

@@ -94,9 +94,8 @@ def validate_settings(data: dict) -> AppConfig:
     )
 
 
-def validate_subscription_id(value) -> str:
-    # Earlier JSON exports use 16-character IDs; current IDs use UUID hex.
-    if not isinstance(value, str) or not re.fullmatch(r"(?:[0-9a-f]{16}|[0-9a-f]{32})", value):
+def validate_subscription_id(value: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{32}", value):
         raise ValueError("订阅 ID 无效")
     return value
 
