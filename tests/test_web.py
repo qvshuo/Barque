@@ -64,18 +64,38 @@ class WebTests(unittest.TestCase):
         for path in ["/", "/?page=settings", "/?page=subscriptions", "/api/configuration"]:
             identity = self.get(path, headers={"Accept-Encoding": "identity"})
             packed = self.get(path, headers={"Accept-Encoding": "gzip"})
-            self.assertEqual(packed.headers["Content-Encoding"], "gzip")
-            self.assertEqual(gzip.decompress(packed.data), identity.data)
+            if packed.headers.get("Content-Encoding") == "gzip":
+                self.assertLess(len(packed.data), len(identity.data))
+                self.assertEqual(gzip.decompress(packed.data), identity.data)
+            else:
+                self.assertNotIn("Content-Encoding", packed.headers)
+                self.assertEqual(packed.data, identity.data)
             self.assertEqual(int(packed.headers["Content-Length"]), len(packed.data))
             self.assertIn("Accept-Encoding", packed.headers["Vary"])
             head = self.head(path, headers={"Accept-Encoding": "gzip"})
             self.assertEqual(head.data, b"")
             self.assertEqual(head.headers["Content-Length"], packed.headers["Content-Length"])
-            self.assertEqual(head.headers["Content-Encoding"], "gzip")
+            self.assertEqual(
+                head.headers.get("Content-Encoding"), packed.headers.get("Content-Encoding")
+            )
             self.assertEqual(identity.headers["Cache-Control"], "no-store")
         dashboard = self.scheduler.get_dashboard(self.db.get_config())
         self.assertEqual(set(dashboard), {"summary", "category_groups"})
         self.assertIn("yearly_estimated_cny", dashboard["summary"])
+
+    def test_small_response_does_not_expand_with_gzip(self):
+        plain = self.get("/api/auth/session", headers={"Accept-Encoding": "identity"})
+        response = self.get("/api/auth/session", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("Content-Encoding", response.headers)
+        self.assertEqual(response.data, plain.data)
+        self.assertEqual(int(response.headers["Content-Length"]), len(response.data))
+        self.assertIn("Accept-Encoding", response.headers["Vary"])
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        head = self.head("/api/auth/session", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(head.data, b"")
+        self.assertNotIn("Content-Encoding", head.headers)
+        self.assertEqual(head.headers["Content-Length"], response.headers["Content-Length"])
 
     def test_static_precompression_negotiation_head_and_cache(self):
         for filename in ["app.js", "app.css", "vendor/basecoat-1.1.0.min.css"]:

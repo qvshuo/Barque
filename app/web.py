@@ -357,10 +357,13 @@ def create_app(
             ):
                 response.direct_passthrough = False
                 data = response.get_data()
-                response.set_data(gzip.compress(data, compresslevel=6, mtime=0))
-                response.headers["Content-Encoding"] = "gzip"
-                if response.get_etag()[0]:
-                    response.set_etag(response.get_etag()[0], weak=True)
+                packed = gzip.compress(data, compresslevel=6, mtime=0)
+                if len(packed) < len(data) or not identity_allowed:
+                    response.set_data(packed)
+                    response.headers["Content-Encoding"] = "gzip"
+                    etag, _ = response.get_etag()
+                    if etag:
+                        response.set_etag(etag, weak=True)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
