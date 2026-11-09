@@ -3,6 +3,7 @@ const form = document.querySelector("#management, #settings-form");
 let saved = "",
   busy = false,
   noticeTimer;
+
 function feedback(message, error = false) {
   const box = document.querySelector("#feedback");
   box.textContent = message;
@@ -13,27 +14,34 @@ function feedback(message, error = false) {
     box.hidden = true;
   }, 6000);
 }
+
+function requireLogin() {
+  document.querySelector("#reauth-open").hidden = false;
+  const dialog = document.querySelector("#reauth");
+  if (!dialog.open) dialog.showModal();
+}
 async function api(path, method = "GET", data = {}) {
   let response;
   try {
     response = await fetch(`/api${path}`, {
       method,
       signal: AbortSignal.timeout(30000),
-      headers:
-        method === "GET" ? {} : { "Content-Type": "application/json", "X-Barque-Request": "1" },
+      headers: method === "GET" ? {} : {
+        "Content-Type": "application/json",
+        "X-Barque-Request": "1"
+      },
       body: method === "GET" ? undefined : JSON.stringify(data),
     });
   } catch (error) {
     throw new Error(
-      error.name === "TimeoutError"
-        ? "请求超时，请刷新页面确认后重试"
-        : "网络连接失败，请检查连接后重试",
+      error.name === "TimeoutError" ?
+      "请求超时，请刷新页面确认后重试" :
+      "网络连接失败，请检查连接后重试",
     );
   }
   if (response.status === 401 && !path.startsWith("/auth/")) {
-    document.querySelector('#reauth-open').hidden = false;
-    document.querySelector('#reauth').showModal();
-    throw new Error('请重新登录后保存');
+    requireLogin();
+    throw new Error("请重新登录后保存");
   }
   if (!response.ok) {
     const value = await response.json().catch(() => null);
@@ -41,6 +49,7 @@ async function api(path, method = "GET", data = {}) {
   }
   return response.status === 204 ? undefined : response.json();
 }
+
 function confirmAction(title, description, accept = "放弃更改", cancel = "继续编辑") {
   const dialog = document.querySelector("#confirm");
   if (dialog.open) return Promise.resolve(false);
@@ -56,13 +65,16 @@ function confirmAction(title, description, accept = "放弃更改", cancel = "�
       ok.onclick = no.onclick = null;
       resolve(dialog.returnValue === "ok");
     };
-    dialog.addEventListener("close", close, { once: true });
+    dialog.addEventListener("close", close, {
+      once: true
+    });
     ok.onclick = () => dialog.close("ok");
     no.onclick = () => dialog.close("cancel");
     dialog.showModal();
     no.focus();
   });
 }
+
 function groups() {
   return [...document.querySelectorAll("#groups > .editor-group")].map((group) => {
     const name = group.querySelector("[name=category]").value;
@@ -87,18 +99,22 @@ function fieldValues(root) {
     .filter((input) => input.name !== "notify_enabled")
     .map((input) => [input.name, input.value]);
 }
+
 function settings() {
   const value = Object.fromEntries(fieldValues(form));
   value.remind_before_days = Number(value.remind_before_days);
   value.check_interval_seconds = Number(value.check_interval_seconds);
   return value;
 }
+
 function snapshot() {
   return form ? JSON.stringify(page === "subscriptions" ? groups() : settings()) : "";
 }
+
 function dirty() {
   return snapshot() !== saved;
 }
+
 function sync() {
   if (!form) return;
   const changed = dirty();
@@ -168,11 +184,16 @@ document.querySelector("#logout")?.addEventListener("click", async () => {
   try {
     await leave(async () => {
       busy = true;
-      try { await api("/auth/logout", "POST"); }
-      finally { busy = false; }
+      try {
+        await api("/auth/logout", "POST");
+      } finally {
+        busy = false;
+      }
       location.reload();
     });
-  } catch (error) { feedback(error.message, true); }
+  } catch (error) {
+    feedback(error.message, true);
+  }
 });
 document.querySelector("#login-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -185,7 +206,9 @@ document.querySelector("#login-form")?.addEventListener("submit", async (event) 
   button.textContent = "登录中…";
   errorBox.hidden = true;
   try {
-    await api("/auth/login", "POST", { password: login.elements.password.value });
+    await api("/auth/login", "POST", {
+      password: login.elements.password.value
+    });
     location.reload();
   } catch (error) {
     errorBox.textContent = error.message;
@@ -196,29 +219,38 @@ document.querySelector("#login-form")?.addEventListener("submit", async (event) 
     button.textContent = "登录";
   }
 });
-const reauth = document.querySelector('#reauth');
-document.querySelector('#reauth-open').addEventListener('click', () => reauth.showModal());
-document.querySelector('#reauth-cancel').addEventListener('click', () => reauth.close());
-document.querySelector('#reauth-form').addEventListener('submit', async event => {
+const reauth = document.querySelector("#reauth");
+document.querySelector("#reauth-open").addEventListener("click", requireLogin);
+document.querySelector("#reauth-cancel").addEventListener("click", () => reauth.close());
+document.querySelector("#reauth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const login = event.currentTarget, button = login.querySelector('[type=submit]'), errorBox = login.querySelector('.error');
+  const login = event.currentTarget,
+    button = login.querySelector("[type=submit]"),
+    errorBox = login.querySelector(".error");
   if (button.disabled) return;
   button.disabled = true;
   errorBox.hidden = true;
   try {
-    await api('/auth/login', 'POST', {password:login.elements.password.value});
+    await api("/auth/login", "POST", {
+      password: login.elements.password.value
+    });
     login.reset();
     reauth.close();
-    document.querySelector('#reauth-open').hidden = true;
-    window.dispatchEvent(new Event('barque:authenticated'));
-  } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
-  finally { button.disabled = false; }
+    document.querySelector("#reauth-open").hidden = true;
+    window.dispatchEvent(new Event("barque:authenticated"));
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
 });
-reauth.addEventListener('close', () => document.querySelector('#reauth-form').reset());
+reauth.addEventListener("close", () => document.querySelector("#reauth-form").reset());
 if (form) {
   saved = snapshot();
   form.addEventListener("input", (event) => {
-    if (event.target.name === "currency") event.target.value = event.target.value.toUpperCase();
+    if (event.target.name === "currency") event.target.value = event.target.value
+      .toUpperCase();
     sync();
   });
   form.addEventListener("change", sync);
@@ -231,9 +263,11 @@ if (form) {
       errorBox = form.querySelector(".error");
     // Capture settings before disabling controls, since FormData omits disabled inputs.
     const payload =
-      page === "subscriptions"
-        ? { categories: groups(), revision: form.dataset.revision }
-        : settings();
+      page === "subscriptions" ? {
+        categories: groups(),
+        revision: form.dataset.revision
+      } :
+      settings();
     fieldset.disabled = true;
     button.textContent = "保存中…";
     button.disabled = true;
@@ -249,7 +283,6 @@ if (form) {
       fieldset.disabled = false;
       saved = snapshot();
       form.querySelector(".reload").hidden = true;
-
     } catch (error) {
       errorBox.textContent = error.message;
       errorBox.hidden = false;
@@ -266,6 +299,7 @@ if (form) {
     .addEventListener("click", () => void leave(() => location.reload()));
   sync();
 }
+
 function labels() {
   for (const entry of document.querySelectorAll("#groups > .editor-group, .editor")) {
     const isGroup = entry.classList.contains("editor-group");
@@ -274,15 +308,16 @@ function labels() {
       (isGroup ? "新分类" : "新订阅");
     entry.setAttribute("aria-label", value);
     for (const [action, label] of [
-      ["up", "上移"],
-      ["down", "下移"],
-      ["delete", "删除"],
-    ])
+        ["up", "上移"],
+        ["down", "下移"],
+        ["delete", "删除"],
+      ])
       entry
-        .querySelector(`.order [data-action=${action}]`)
-        .setAttribute("aria-label", `${value}${isGroup ? " 分类" : ""} ${label}`);
+      .querySelector(`.order [data-action=${action}]`)
+      .setAttribute("aria-label", `${value}${isGroup ? " 分类" : ""} ${label}`);
   }
 }
+
 function orderActions() {
   for (const container of document.querySelectorAll("#groups, .editors")) {
     [...container.children].forEach((entry, index, entries) => {
@@ -293,6 +328,7 @@ function orderActions() {
     });
   }
 }
+
 function applyGroups(result) {
   form.dataset.revision = result.revision;
   [...document.querySelectorAll("#groups > .editor-group")].forEach((group, i) => {
@@ -311,7 +347,9 @@ function applyGroups(result) {
 }
 if (page === "subscriptions") {
   orderActions();
-  const names = new Intl.DisplayNames(["zh-CN"], { type: "currency" });
+  const names = new Intl.DisplayNames(["zh-CN"], {
+    type: "currency"
+  });
   for (const option of document.querySelectorAll("#currencies option"))
     option.textContent = names.of(option.value) || option.textContent;
   form.addEventListener("click", (event) => {
@@ -320,7 +358,8 @@ if (page === "subscriptions") {
     const action = button.dataset.action;
     if (action === "add-group" || action === "add-subscription") {
       const fragment = document
-        .querySelector(action === "add-group" ? "#group-template" : "#subscription-template")
+        .querySelector(action === "add-group" ? "#group-template" :
+          "#subscription-template")
         .content.cloneNode(true);
       const root = fragment.firstElementChild;
       if (action === "add-subscription") {
@@ -332,9 +371,9 @@ if (page === "subscriptions") {
           `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       }
       const target =
-        action === "add-group"
-          ? document.querySelector("#groups")
-          : button.closest(".editor-group").querySelector(".editors");
+        action === "add-group" ?
+        document.querySelector("#groups") :
+        button.closest(".editor-group").querySelector(".editors");
       target.append(fragment);
       root.querySelector("input").focus();
     } else {
@@ -342,12 +381,14 @@ if (page === "subscriptions") {
       if (action === "delete") entry.remove();
       if (action === "up" && entry.previousElementSibling)
         entry.previousElementSibling.before(entry);
-      if (action === "down" && entry.nextElementSibling) entry.nextElementSibling.after(entry);
+      if (action === "down" && entry.nextElementSibling) entry.nextElementSibling.after(
+        entry);
     }
     orderActions();
     sync();
   });
 }
+
 function applySettings(result) {
   for (const [key, value] of Object.entries(result))
     if (form.elements[key]) form.elements[key].value = value;
@@ -357,6 +398,8 @@ if (page === "settings") {
     const input = form.elements.notify_url,
       reveal = input.type === "password";
     input.type = reveal ? "text" : "password";
+    event.currentTarget.querySelector("[data-eye-open]").toggleAttribute("hidden", reveal);
+    event.currentTarget.querySelector("[data-eye-closed]").toggleAttribute("hidden", !reveal);
     event.currentTarget.setAttribute("aria-pressed", String(reveal));
     event.currentTarget.setAttribute("aria-label", reveal ? "隐藏推送地址" : "显示推送地址");
   });
@@ -370,7 +413,9 @@ if (page === "settings") {
     // Keep the saved snapshot intact when temporarily disabling controls.
     form.querySelector(".save").disabled = true;
     try {
-      await api("/test-notification", "POST", { notify_url: url });
+      await api("/test-notification", "POST", {
+        notify_url: url
+      });
       feedback("已发送");
     } catch (error) {
       feedback(error.message, true);
@@ -385,7 +430,9 @@ if (page === "settings") {
     try {
       const data = await api("/configuration"),
         url = URL.createObjectURL(
-          new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+          new Blob([JSON.stringify(data, null, 2)], {
+            type: "application/json"
+          }),
         );
       const link = document.createElement("a");
       link.href = url;
@@ -441,14 +488,24 @@ if (page === "settings") {
 if (page === "home") {
   const search = document.querySelector("#search"),
     category = document.querySelector("#category");
-  const money = new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY" });
+  const money = new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY"
+  });
+
   function formatMoney() {
-    for (const element of document.querySelectorAll('[data-money]')) {
-      const value = Number(element.dataset.money), currency = element.dataset.currency || 'CNY';
-      const compact = element.hasAttribute('data-compact') && Math.abs(value) >= 1000000;
-      element.textContent = new Intl.NumberFormat('zh-CN', {style:'currency',currency,notation:compact ? 'compact' : 'standard'}).format(value);
+    for (const element of document.querySelectorAll("[data-money]")) {
+      const value = Number(element.dataset.money),
+        currency = element.dataset.currency || "CNY";
+      const compact = element.hasAttribute("data-compact") && Math.abs(value) >= 1000000;
+      element.textContent = new Intl.NumberFormat("zh-CN", {
+        style: "currency",
+        currency,
+        notation: compact ? "compact" : "standard"
+      }).format(value);
     }
   }
+
   function filter() {
     let count = 0;
     for (const section of document.querySelectorAll(".category")) {
@@ -471,8 +528,10 @@ if (page === "home") {
       count += visible;
     }
     document.querySelector("#empty").hidden = count > 0;
-    document.querySelector('.filters').hidden = !document.querySelector('.subscription') && !search.value && !category.value;
+    document.querySelector(".filters").hidden =
+      !document.querySelector(".subscription") && !search.value && !category.value;
   }
+
   function times() {
     for (const time of document.querySelectorAll("time")) {
       const value = new Date(time.textContent);
@@ -487,17 +546,23 @@ if (page === "home") {
     if (refreshing) return refreshing;
     refreshing = (async () => {
       const response = await fetch("/", {
-        headers: { "X-Barque-Fragment": "dashboard" },
+        headers: {
+          "X-Barque-Fragment": "dashboard"
+        },
         signal: AbortSignal.timeout(30000),
       });
+      if (response.status === 401) {
+        requireLogin();
+        throw new Error("请重新登录");
+      }
       if (!response.ok) throw new Error("无法加载订阅，请刷新后重试");
       const markup = await response.text();
       if (markup === lastMarkup) return;
       const doc = new DOMParser().parseFromString(markup, "text/html"),
         next = doc.querySelector("#dashboard");
       if (!next) {
-        document.querySelector('#reauth-open').hidden = false;
-        throw new Error('请重新登录');
+        requireLogin();
+        throw new Error("请重新登录");
       }
       const scroll = window.scrollY;
       const focused = document.activeElement?.closest(".renew")?.dataset.id;
@@ -513,11 +578,20 @@ if (page === "home") {
         : "";
       next.querySelector(".filters").replaceWith(document.querySelector(".filters"));
       document.querySelector("#dashboard").replaceWith(next);
+      document.querySelectorAll(".renew").forEach((control) => {
+        control.disabled = pending;
+      });
       times();
       formatMoney();
       filter();
-      if (focused) [...document.querySelectorAll('.renew')].find(control => control.dataset.id === focused)?.focus({preventScroll:true});
-      window.scrollTo({top:scroll,behavior:'instant'});
+      if (focused) {
+        [...document.querySelectorAll(".renew")]
+          .find((control) => control.dataset.id === focused)?.focus({ preventScroll: true });
+      }
+      window.scrollTo({
+        top: scroll,
+        behavior: "instant"
+      });
       lastMarkup = markup;
     })().finally(() => {
       refreshing = null;
@@ -531,31 +605,47 @@ if (page === "home") {
   document.addEventListener("click", async (event) => {
     const button = event.target.closest(".renew");
     if (!button || pending) return;
+    const original = {
+      id: button.dataset.id,
+      payment: button.dataset.payment,
+      renewal: button.dataset.renewal,
+      pressed: button.getAttribute("aria-pressed"),
+    };
+    let completed = false;
     pending = true;
     document.querySelectorAll(".renew").forEach((control) => {
       control.disabled = true;
     });
     try {
       if (refreshing) await refreshing.catch(() => {});
+      const current = [...document.querySelectorAll(".renew")]
+        .find((control) => control.dataset.id === original.id);
+      if (!current || current.dataset.payment !== original.payment ||
+        current.dataset.renewal !== original.renewal ||
+        current.getAttribute("aria-pressed") !== original.pressed) {
+        throw new Error("订阅状态已更新，请重新操作");
+      }
       await api("/renewal-status", "PUT", {
-        subscription_id: button.dataset.id,
-        payment_date: button.dataset.payment,
-        renewal_date: button.dataset.renewal,
-        renewed: button.getAttribute("aria-pressed") !== "true",
+        subscription_id: current.dataset.id,
+        payment_date: current.dataset.payment,
+        renewal_date: current.dataset.renewal,
+        renewed: current.getAttribute("aria-pressed") !== "true",
       });
       await refresh();
-      document.querySelectorAll(".renew").forEach((control) => {
-        if (control.dataset.id === button.dataset.id) control.focus({preventScroll:true});
-      });
+      completed = true;
     } catch (error) {
       feedback(error.message, true);
     } finally {
       pending = false;
       document.querySelectorAll(".renew").forEach((control) => {
         control.disabled = false;
+        if (completed && control.dataset.id === original.id) {
+          control.focus({ preventScroll: true });
+        }
       });
     }
   });
+
   function schedule() {
     if (document.hidden || pending) return;
     clearTimeout(timer);

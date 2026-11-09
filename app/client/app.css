@@ -263,6 +263,7 @@ progress.paid {
 
 .timestamps {
   margin-top: 24px;
+  opacity: 0.75;
 }
 
 fieldset {
@@ -289,7 +290,7 @@ label select {
   font-weight: 400;
 }
 
-.row>label {
+.row > label {
   flex: 1;
 }
 
@@ -313,7 +314,7 @@ label select {
   margin-bottom: 20px;
 }
 
-.editor-group>button {
+.editor-group > button {
   margin-top: 12px;
 }
 
@@ -334,7 +335,7 @@ label select {
   z-index: 10;
 }
 
-.savebar>div {
+.savebar > div {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -479,12 +480,8 @@ label select {
     align-items: flex-start;
   }
 
-  .section-heading>span {
+  .section-heading > span {
     text-align: right;
-  }
-
-  .editor {
-    padding: 16px;
   }
 }
 
@@ -494,8 +491,8 @@ label select {
   }
 }
 
-.subscription>header,
-.subscription>footer {
+.subscription > header,
+.subscription > footer {
   padding: 0;
 }
 
@@ -521,16 +518,12 @@ select.select {
   min-height: 44px;
 }
 
-svg {
+.btn svg {
   stroke-width: 1.75;
 }
 
 .renew {
   min-height: 44px;
-}
-
-.timestamps {
-  opacity: .75;
 }
 
 @media (prefers-reduced-motion: reduce) {

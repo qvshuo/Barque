@@ -178,6 +178,19 @@ class BrowserTests(unittest.TestCase):
     def test_bark_unsaved_success_failure_and_settings_save(self):
         self.navigate("设置")
         page = self.page
+        reveal = page.locator("#reveal")
+        for visible in (True, False):
+            reveal.click()
+            expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute(
+                "type", "text" if visible else "password"
+            )
+            expect(reveal).to_have_attribute("aria-pressed", str(visible).lower())
+            expect(reveal).to_have_attribute(
+                "aria-label", "隐藏推送地址" if visible else "显示推送地址"
+            )
+            expect(reveal.locator("[data-eye-closed]")).to_be_visible() if visible else expect(
+                reveal.locator("[data-eye-open]")
+            ).to_be_visible()
         page.get_by_label("Bark 地址", exact=True).fill("https://example.com/unsaved-key")
 
         def notification(route):
@@ -243,7 +256,10 @@ class BrowserTests(unittest.TestCase):
             data={**configuration()["subscriptions"][0], "name": "其他窗口"},
         )
         page.get_by_role("button", name="保存", exact=True).click()
-        expect(page.get_by_role("button", name="重新加载", exact=True)).to_be_visible()
+        reload = page.get_by_role("button", name="重新加载", exact=True)
+        expect(reload).to_be_visible()
+        expect(reload).to_have_class("btn reload")
+        expect(reload).to_have_attribute("data-variant", "outline")
         expect(page.get_by_label("名称", exact=True).first).to_have_value("本地草稿")
         page.get_by_role("button", name="重新加载", exact=True).click()
         page.get_by_role("button", name="放弃更改", exact=True).click()
@@ -351,6 +367,52 @@ class BrowserTests(unittest.TestCase):
         expect(
             self.page.get_by_role("button", name="订阅1：已付，点击撤销", exact=True)
         ).to_be_visible()
+
+    def test_concurrent_unauthorized_requests_share_dialog(self):
+        self.navigate("设置")
+        pending = []
+        self.page.route("**/api/configuration", lambda route: pending.append(route))
+        self.page.evaluate("""() => {
+            window.modalCalls = 0;
+            const original = HTMLDialogElement.prototype.showModal;
+            HTMLDialogElement.prototype.showModal = function() {
+                window.modalCalls++;
+                return original.call(this);
+            };
+            document.querySelector('#export').click();
+            document.querySelector('#export').click();
+        }""")
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(pending), 2)
+        self.page.get_by_label("时区", exact=True).fill("UTC")
+        for route in pending:
+            route.fulfill(status=401, json={"error": "请登录"})
+        expect(self.page.locator("#reauth article")).to_be_visible()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(self.page.evaluate("window.modalCalls"), 1)
+        self.page.keyboard.press("Escape")
+        expect(self.page.get_by_label("时区", exact=True)).to_have_value("UTC")
+
+    def test_refresh_rejects_stale_renewal_state(self):
+        pending = []
+        writes = []
+        self.page.route("**/", lambda route: pending.append(route))
+        self.page.route("**/api/renewal-status", lambda route: writes.append(route))
+        self.page.evaluate("dispatchEvent(new Event('focus'))")
+        self.page.wait_for_timeout(200)
+        self.assertEqual(len(pending), 1)
+        button = self.page.get_by_role("button", name="订阅1：标记已付", exact=True)
+        state = button.evaluate(
+            "el => ({subscription_id:el.dataset.id, payment_date:el.dataset.payment, renewal_date:el.dataset.renewal, renewed:true})"
+        )
+        self.assertTrue(self.api.put("/api/renewal-status", headers=HEADERS, data=state).ok)
+        button.click()
+        pending[0].fulfill(response=pending[0].fetch())
+        expect(self.page.get_by_text("订阅状态已更新，请重新操作", exact=True)).to_be_visible()
+        expect(
+            self.page.get_by_role("button", name="订阅1：已付，点击撤销", exact=True)
+        ).to_be_enabled()
+        self.assertEqual(writes, [])
 
     def test_failed_logout_preserves_unsaved_protection(self):
         self.navigate("设置")
