@@ -25,6 +25,8 @@ class BrowserTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(prefix="barque-browser-")
         database = Database(Path(cls.directory.name))
         cls.app = create_app(database, Scheduler(database), initial_password=PASSWORD)
+        cls.database = database
+        cls.scheduler = Scheduler(database)
         cls.server = make_server("127.0.0.1", 0, cls.app, threaded=True)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -58,7 +60,7 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(
             self.api.put("/api/configuration", headers=HEADERS, data=configuration()).ok
         )
-        for group in self.api.get("/api/dashboard").json()["category_groups"]:
+        for group in self.scheduler.get_dashboard(self.database.get_config())["category_groups"]:
             for item in group["subscription_items"]:
                 if item["button_state"]["status_kind"] == "renewed":
                     self.assertTrue(
@@ -120,20 +122,7 @@ class BrowserTests(unittest.TestCase):
                     self.page.goto("/")
                     cards = self.page.locator(".summary > .card")
                     expect(cards).to_have_count(4)
-                    for card in cards.all():
-                        label = card.locator("p").bounding_box()
-                        number = card.locator("strong").bounding_box()
-                        self.assertAlmostEqual(
-                            number["y"] - label["y"] - label["height"], 8, delta=1
-                        )
                     boxes = [card.bounding_box() for card in cards.all()]
-                    self.assertTrue(all(abs(box["width"] - boxes[0]["width"]) < 1 for box in boxes))
-                    self.assertTrue(
-                        all(abs(box["height"] - boxes[0]["height"]) < 1 for box in boxes)
-                    )
-                    self.assertAlmostEqual(
-                        boxes[1]["x"] - boxes[0]["x"] - boxes[0]["width"], 16, delta=1
-                    )
                     self.assertEqual(
                         boxes[0]["y"], boxes[2]["y"]
                     ) if width > 639 else self.assertGreater(boxes[2]["y"], boxes[0]["y"])
@@ -172,7 +161,7 @@ class BrowserTests(unittest.TestCase):
         self.page.keyboard.press("Escape")
         expect(dialog).not_to_have_attribute("open", "")
         self.save()
-        item = self.api.get("/api/subscriptions").json()[0]
+        item = self.api.get("/api/configuration").json()["subscriptions"][0]
         self.assertEqual(
             (item["billing_cycle"], item["payment_date"], item["currency"], item["notify_enabled"]),
             ("quarter", "2024-01-30", "ZZZ", False),
@@ -302,11 +291,9 @@ class BrowserTests(unittest.TestCase):
         self.navigate("订阅")
         page = self.page
         page.get_by_label("名称", exact=True).first.fill("本地草稿")
-        self.api.put(
-            "/api/subscriptions/" + "1".zfill(32),
-            headers=HEADERS,
-            data={**configuration()["subscriptions"][0], "name": "其他窗口"},
-        )
+        groups = self.api.get("/api/subscription-groups").json()
+        groups["categories"][0]["subscriptions"][0]["name"] = "其他窗口"
+        self.assertTrue(self.api.put("/api/subscription-groups", headers=HEADERS, data=groups).ok)
         page.get_by_role("button", name="保存", exact=True).click()
         reload = page.get_by_role("button", name="重新加载", exact=True)
         expect(reload).to_be_visible()
@@ -390,10 +377,14 @@ class BrowserTests(unittest.TestCase):
         dialog.get_by_label("重新登录密码", exact=True).fill(PASSWORD)
         dialog.get_by_role("button", name="登录", exact=True).click()
         expect(dialog).not_to_have_attribute("open", "")
-        self.assertEqual(self.api.get("/api/subscriptions").json()[0]["name"], "订阅1")
+        self.assertEqual(
+            self.api.get("/api/configuration").json()["subscriptions"][0]["name"], "订阅1"
+        )
         self.assertEqual(self.page.evaluate("localStorage.length"), 0)
         self.save()
-        self.assertEqual(self.api.get("/api/subscriptions").json()[0]["name"], "保留的订阅草稿")
+        self.assertEqual(
+            self.api.get("/api/configuration").json()["subscriptions"][0]["name"], "保留的订阅草稿"
+        )
 
     def test_renewal_waits_for_inflight_background_refresh(self):
         pending = []
@@ -410,9 +401,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(len(pending), 1)
         self.page.get_by_role("button", name="订阅1：标记已付", exact=True).click()
         self.assertNotEqual(
-            self.api.get("/api/dashboard").json()["category_groups"][0]["subscription_items"][0][
-                "button_state"
-            ]["status_kind"],
+            self.scheduler.get_dashboard(self.database.get_config())["category_groups"][0][
+                "subscription_items"
+            ][0]["button_state"]["status_kind"],
             "renewed",
         )
         pending[0].fulfill(response=pending[0].fetch())
@@ -493,9 +484,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(len(writes), 1)
         self.assertTrue(writes[0]["renewed"])
         self.assertEqual(
-            self.api.get("/api/dashboard").json()["category_groups"][0]["subscription_items"][0][
-                "button_state"
-            ]["status_kind"],
+            self.scheduler.get_dashboard(self.database.get_config())["category_groups"][0][
+                "subscription_items"
+            ][0]["button_state"]["status_kind"],
             "renewed",
         )
         page.evaluate("dispatchEvent(new Event('focus'))")

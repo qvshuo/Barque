@@ -11,7 +11,6 @@ from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from app.config import (
     AppConfig,
@@ -27,12 +26,8 @@ class SubscriptionConflictError(ValueError):
     pass
 
 
-class SubscriptionNotFoundError(LookupError):
-    pass
-
-
 # Business entities use explicit methods; the generic interface only serves caches.
-RUNTIME_STATE_KEYS = {"currency_catalog", "exchange_rates"}
+RUNTIME_STATE_KEYS = {"exchange_rates"}
 
 
 class Database:
@@ -140,71 +135,6 @@ class Database:
             subscriptions,
             key=lambda item: (category_ranks[item.category], ranks.get(item.id, len(ranks))),
         )
-
-    @staticmethod
-    def _prune_order(connection, moved_id=None):
-        row = connection.execute("SELECT value FROM state WHERE key = 'display_order'").fetchone()
-        if row is None:
-            return
-        order = json.loads(row[0])
-        rows = connection.execute("SELECT id, category FROM subscriptions").fetchall()
-        ids = {row["id"] for row in rows}
-        ordered_ids = [
-            value for value in order["subscriptions"] if value in ids and value != moved_id
-        ]
-        ordered_ids.extend(
-            row["id"] for row in rows if row["id"] not in ordered_ids and row["id"] != moved_id
-        )
-        if moved_id in ids:
-            ordered_ids.append(moved_id)
-        order["subscriptions"] = ordered_ids
-        Database._write_state(connection, "display_order", order)
-
-    def move(self, kind: str, target: str, direction: str):
-        if (
-            not all(isinstance(value, str) for value in (kind, target, direction))
-            or kind not in {"category", "subscription"}
-            or direction not in {"forward", "backward"}
-        ):
-            raise ValueError("排序参数无效")
-        with self.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            order = self._read_order(connection)
-            subscriptions = self._ordered(self._read_subscriptions(connection), order)
-            categories = list(
-                dict.fromkeys(
-                    [*order.get("categories", []), *(item.category for item in subscriptions)]
-                )
-            )
-            ids = [item.id for item in subscriptions]
-            if kind == "category":
-                values = categories
-            else:
-                current = next((item for item in subscriptions if item.id == target), None)
-                if current is None:
-                    raise ValueError("订阅已不存在，请刷新后重试")
-                values = [item.id for item in subscriptions if item.category == current.category]
-            if target not in values:
-                raise ValueError("分类已不存在，请刷新后重试")
-            index = values.index(target)
-            neighbor = index + (-1 if direction == "forward" else 1)
-            if 0 <= neighbor < len(values):
-                if kind == "subscription":
-                    left, right = ids.index(target), ids.index(values[neighbor])
-                    ids[left], ids[right] = ids[right], ids[left]
-                else:
-                    categories[index], categories[neighbor] = (
-                        categories[neighbor],
-                        categories[index],
-                    )
-            self._write_state(
-                connection, "display_order", {"categories": categories, "subscriptions": ids}
-            )
-
-    def supported_currencies(self) -> dict[str, str]:
-        from app.currencies import DEFAULT_CURRENCIES
-
-        return self.read_state("currency_catalog", {"currencies": DEFAULT_CURRENCIES})["currencies"]
 
     def update_settings(self, data: dict) -> AppConfig:
         settings = validate_settings(data)
@@ -382,64 +312,6 @@ class Database:
             VALUES (:id, :name, :category, :billing_cycle, :payment_date, :amount, :currency, :notify_enabled)""",
             values,
         )
-
-    def save_subscription(
-        self, data: dict, subscription_id: str | None = None
-    ) -> SubscriptionConfig:
-        with self.connect() as connection:
-            if subscription_id:
-                connection.execute("BEGIN IMMEDIATE")
-                previous = connection.execute(
-                    "SELECT * FROM subscriptions WHERE id = ?", (subscription_id,)
-                ).fetchone()
-                if previous is None:
-                    raise SubscriptionNotFoundError(subscription_id)
-                # Editing subscription details must preserve a newer reminder preference.
-                payload = {"notify_enabled": bool(previous["notify_enabled"]), **data}
-                subscription = validate_subscription(payload, subscription_id)
-                connection.execute(
-                    """UPDATE subscriptions SET name=:name, category=:category, billing_cycle=:billing_cycle,
-                    payment_date=:payment_date, amount=:amount, currency=:currency, notify_enabled=:notify_enabled WHERE id=:id""",
-                    asdict(subscription),
-                )
-                if previous["category"] != subscription.category:
-                    self._prune_order(connection, subscription_id)
-                if (
-                    previous["payment_date"] != subscription.payment_date
-                    or previous["billing_cycle"] != subscription.billing_cycle
-                ):
-                    connection.execute(
-                        "DELETE FROM renewals WHERE cycle_key LIKE ?", (subscription_id + ":%",)
-                    )
-            else:
-                subscription = validate_subscription(data, uuid4().hex)
-                self._write_subscription(connection, subscription)
-        return subscription
-
-    def set_notify_enabled(self, subscription_id: str, enabled: bool) -> SubscriptionConfig:
-        with self.connect() as connection:
-            if not connection.execute(
-                "UPDATE subscriptions SET notify_enabled = ? WHERE id = ?",
-                (enabled, subscription_id),
-            ).rowcount:
-                raise SubscriptionNotFoundError(subscription_id)
-            row = connection.execute(
-                "SELECT * FROM subscriptions WHERE id = ?", (subscription_id,)
-            ).fetchone()
-            return SubscriptionConfig(
-                **{**dict(row), "notify_enabled": bool(row["notify_enabled"])}
-            )
-
-    def delete_subscription(self, subscription_id: str):
-        with self.connect() as connection:
-            if not connection.execute(
-                "DELETE FROM subscriptions WHERE id = ?", (subscription_id,)
-            ).rowcount:
-                raise SubscriptionNotFoundError(subscription_id)
-            connection.execute(
-                "DELETE FROM renewals WHERE cycle_key LIKE ?", (subscription_id + ":%",)
-            )
-            self._prune_order(connection)
 
     @staticmethod
     def _write_state(connection, key: str, value):

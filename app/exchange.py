@@ -10,8 +10,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from app.bark import send_bark_notification
-from app.currencies import CURRENCIES_URL, DEFAULT_CURRENCIES
+from app.currencies import DEFAULT_CURRENCIES
 from app.database import Database
 
 logger = logging.getLogger(__name__)
@@ -22,9 +21,6 @@ DEFAULT_CACHE = {
     "date": None,
     "updated_at": None,
     "rates": {"CNY": 1.0},
-    "failure_count": 0,
-    "failure_notified_at": None,
-    "last_error": None,
 }
 
 
@@ -33,10 +29,9 @@ def valid_rate(value) -> bool:
 
 
 class ExchangeService:
-    def __init__(self, database: Database, timezone: str, notify_url: str) -> None:
+    def __init__(self, database: Database, timezone: str) -> None:
         self.database = database
         self.timezone = timezone
-        self.notify_url = notify_url
 
     def load_rates(self) -> dict:
         cache = self.database.read_state("exchange_rates", DEFAULT_CACHE)
@@ -44,38 +39,10 @@ class ExchangeService:
         cache["rates"].setdefault("CNY", 1.0)
         return cache
 
-    def sync_supported_currencies(self, today: date) -> dict[str, str]:
-        cache = self.database.read_state("currency_catalog", {"currencies": DEFAULT_CURRENCIES})
-        if cache.get("date") == today.isoformat():
-            return cache["currencies"]
-        try:
-            response = httpx.get(CURRENCIES_URL, timeout=15, follow_redirects=True)
-            response.raise_for_status()
-            currencies = response.json()
-            if (
-                not isinstance(currencies, dict)
-                or "CNY" not in currencies
-                or not all(
-                    isinstance(code, str)
-                    and len(code) == 3
-                    and code.isascii()
-                    and code.isalpha()
-                    and code.isupper()
-                    and isinstance(name, str)
-                    for code, name in currencies.items()
-                )
-            ):
-                raise ValueError("Invalid currency catalog")
-            cache = {"date": today.isoformat(), "currencies": dict(sorted(currencies.items()))}
-            self.database.write_state("currency_catalog", cache)
-        except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("Currency catalog sync failed: %s", exc)
-        return cache["currencies"]
-
     def sync_once_per_day(self, today: date, required_currencies: set[str] | None = None) -> dict:
         cache = self.load_rates()
         required_currencies = {currency.upper() for currency in required_currencies or set()}
-        required_currencies &= set(self.database.supported_currencies())
+        required_currencies &= set(DEFAULT_CURRENCIES)
         required_currencies.add("CNY")
         if cache.get("date") == today.isoformat() and self._has_required_rates(
             cache, required_currencies
@@ -91,9 +58,6 @@ class ExchangeService:
                 timespec="seconds"
             )
             cache["rates"] = {"CNY": 1.0}
-            cache["failure_count"] = 0
-            cache["failure_notified_at"] = None
-            cache["last_error"] = None
             self.database.write_state("exchange_rates", cache)
             return cache
 
@@ -118,27 +82,10 @@ class ExchangeService:
                 "date": today.isoformat(),
                 "updated_at": datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds"),
                 "rates": rates,
-                "failure_count": 0,
-                "failure_notified_at": None,
-                "last_error": None,
             }
             self.database.write_state("exchange_rates", cache)
             logger.info("Exchange rates synced for %s", today.isoformat())
         except (httpx.HTTPError, ValueError) as exc:
-            cache["failure_count"] = int(cache.get("failure_count") or 0) + 1
-            cache["last_error"] = str(exc)
-            if (
-                self.notify_url
-                and cache["failure_count"] >= 7
-                and cache.get("failure_notified_at") != today.isoformat()
-            ):
-                if send_bark_notification(
-                    self.notify_url,
-                    "Barque 汇率同步异常",
-                    "Frankfurter 汇率已连续 7 次同步失败，请检查网络或服务状态。",
-                ):
-                    cache["failure_notified_at"] = today.isoformat()
-            self.database.write_state("exchange_rates", cache)
             logger.warning("Exchange rate sync failed: %s", exc)
         return cache
 

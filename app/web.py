@@ -13,7 +13,8 @@ from werkzeug.exceptions import HTTPException
 from app.auth import COOKIE_NAME, SESSION_SECONDS, Authentication
 from app.bark import send_bark_notification
 from app.config import validate_settings
-from app.database import Database, SubscriptionConflictError, SubscriptionNotFoundError
+from app.currencies import DEFAULT_CURRENCIES
+from app.database import Database, SubscriptionConflictError
 from app.renewals import build_toggle_response, cycle_key
 from app.scheduler import Scheduler
 from app.subscriptions import find_subscription_item
@@ -102,10 +103,6 @@ def create_app(
     def subscription_conflict(error):
         return jsonify(error=str(error)), 409
 
-    @app.errorhandler(SubscriptionNotFoundError)
-    def missing(_error):
-        return jsonify(error="订阅不存在，请刷新后重试"), 404
-
     @app.errorhandler(HTTPException)
     def http_error(error):
         if request.endpoint == "index":
@@ -161,26 +158,6 @@ def create_app(
         )
         return response
 
-    @app.get("/api/dashboard")
-    def dashboard():
-        config = database.get_config()
-        return jsonify(title="Barque", **scheduler.get_dashboard(config))
-
-    @app.put("/api/order")
-    def move_item():
-        data = body()
-        database.move(data.get("kind"), data.get("target"), data.get("direction"))
-        return "", 204
-
-    @app.get("/api/currencies")
-    def currencies():
-        return jsonify(
-            [
-                {"code": code, "name": name}
-                for code, name in sorted(database.supported_currencies().items())
-            ]
-        )
-
     @app.get("/api/settings")
     def settings():
         return jsonify(asdict(database.get_config().app))
@@ -202,12 +179,6 @@ def create_app(
         scheduler.wake()
         return jsonify(asdict(config.app))
 
-    @app.get("/api/subscriptions")
-    def subscriptions():
-        return jsonify(
-            [asdict(subscription) for subscription in database.get_config().subscriptions]
-        )
-
     @app.get("/api/subscription-groups")
     def subscription_groups():
         return jsonify(database.get_subscription_groups())
@@ -218,33 +189,6 @@ def create_app(
         groups = database.save_subscription_groups(body())
         scheduler.wake()
         return jsonify(groups)
-
-    @app.post("/api/subscriptions")
-    def add_subscription():
-        subscription = database.save_subscription(body())
-        scheduler.wake()
-        return jsonify(asdict(subscription)), 201
-
-    @app.put("/api/subscriptions/<subscription_id>")
-    def update_subscription(subscription_id):
-        subscription = database.save_subscription(body(), subscription_id)
-        scheduler.wake()
-        return jsonify(asdict(subscription))
-
-    @app.put("/api/subscriptions/<subscription_id>/notifications")
-    def update_notification_preference(subscription_id):
-        enabled = body().get("enabled")
-        if type(enabled) is not bool:
-            raise ValueError("提醒开关必须为布尔值")
-        subscription = database.set_notify_enabled(subscription_id, enabled)
-        scheduler.wake()
-        return jsonify(asdict(subscription))
-
-    @app.delete("/api/subscriptions/<subscription_id>")
-    def delete_subscription(subscription_id):
-        database.delete_subscription(subscription_id)
-        scheduler.wake()
-        return "", 204
 
     @app.put("/api/renewal-status")
     def renewal_status():
@@ -319,7 +263,7 @@ def create_app(
                 "subscriptions.html",
                 page=page,
                 groups=database.get_subscription_groups(),
-                currencies=sorted(database.supported_currencies().items()),
+                currencies=sorted(DEFAULT_CURRENCIES.items()),
                 blank_group={"name": "", "subscriptions": []},
                 blank_subscription=blank,
             )
@@ -413,13 +357,10 @@ def create_app(
             ):
                 response.direct_passthrough = False
                 data = response.get_data()
-                if len(data) >= 500 or not identity_allowed:
-                    packed = gzip.compress(data, compresslevel=6, mtime=0)
-                    if len(packed) < len(data) or not identity_allowed:
-                        response.set_data(packed)
-                        response.headers["Content-Encoding"] = "gzip"
-                        if response.get_etag()[0]:
-                            response.set_etag(response.get_etag()[0], weak=True)
+                response.set_data(gzip.compress(data, compresslevel=6, mtime=0))
+                response.headers["Content-Encoding"] = "gzip"
+                if response.get_etag()[0]:
+                    response.set_etag(response.get_etag()[0], weak=True)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"

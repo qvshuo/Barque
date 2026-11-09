@@ -24,4 +24,4 @@ docker compose up -d --build
 
 界面使用 Jinja2、Basecoat 和原生 JavaScript，无需 Node 或前端构建。已有数据可直接使用。
 
-开发与验证见 [配置文档](docs/configuration.md#开发验证)，迁移测量见 [性能报告](docs/performance.md)。
+开发与验证见 [配置文档](docs/configuration.md#开发验证)。

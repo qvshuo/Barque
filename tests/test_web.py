@@ -19,7 +19,8 @@ class WebTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.db = Database(Path(directory.name))
-        self.app = create_app(self.db, Scheduler(self.db), initial_password="test-password")
+        self.scheduler = Scheduler(self.db)
+        self.app = create_app(self.db, self.scheduler, initial_password="test-password")
         self.client = self.app.test_client()
         self.client.post(
             "/api/auth/login", json={"password": "test-password"}, headers={"X-Barque-Request": "1"}
@@ -60,7 +61,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(anonymous.get("/api/settings").status_code, 401)
 
     def test_gzip_dynamic_head_and_api_contract(self):
-        for path in ["/", "/?page=settings", "/?page=subscriptions", "/api/currencies"]:
+        for path in ["/", "/?page=settings", "/?page=subscriptions", "/api/configuration"]:
             identity = self.get(path, headers={"Accept-Encoding": "identity"})
             packed = self.get(path, headers={"Accept-Encoding": "gzip"})
             self.assertEqual(packed.headers["Content-Encoding"], "gzip")
@@ -72,8 +73,8 @@ class WebTests(unittest.TestCase):
             self.assertEqual(head.headers["Content-Length"], packed.headers["Content-Length"])
             self.assertEqual(head.headers["Content-Encoding"], "gzip")
             self.assertEqual(identity.headers["Cache-Control"], "no-store")
-        dashboard = self.get("/api/dashboard").json
-        self.assertEqual(set(dashboard), {"title", "summary", "category_groups"})
+        dashboard = self.scheduler.get_dashboard(self.db.get_config())
+        self.assertEqual(set(dashboard), {"summary", "category_groups"})
         self.assertIn("yearly_estimated_cny", dashboard["summary"])
 
     def test_static_precompression_negotiation_head_and_cache(self):
@@ -160,17 +161,19 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.get("/").status_code, 200)
 
     def test_escaped_html_and_fragment_protects_secrets(self):
-        self.db.save_subscription(
-            {
-                "name": '<script>alert("x")</script>',
-                "category": '<img src=x onerror="alert(1)">',
-                "billing_cycle": "month",
-                "payment_date": "2024-01-31",
-                "amount": 12.34,
-                "currency": "CNY",
-                "notify_enabled": True,
-            }
-        )
+        groups = self.db.get_subscription_groups()
+        item = {
+            "id": "a" * 32,
+            "name": '<script>alert("x")</script>',
+            "category": '<img src=x onerror="alert(1)">',
+            "billing_cycle": "month",
+            "payment_date": "2024-01-31",
+            "amount": 12.34,
+            "currency": "CNY",
+            "notify_enabled": True,
+        }
+        groups["categories"] = [{"name": item["category"], "subscriptions": [item]}]
+        self.db.save_subscription_groups(groups)
         response = self.get("/")
         self.assertIn("&lt;script&gt;", response.text)
         self.assertNotIn('<script>alert("x")</script>', response.text)

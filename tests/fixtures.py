@@ -1,4 +1,4 @@
-"""Fixed seven-subscription dataset shared by browser and performance checks."""
+"""Fixed seven-subscription dataset shared by browser checks."""
 
 
 def configuration():

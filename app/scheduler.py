@@ -73,7 +73,7 @@ class Scheduler:
     def run_once(self, config=None) -> dict:
         config = config or self.database.get_config()
         today = today_in_timezone(config.app.timezone)
-        exchange = ExchangeService(self.database, config.app.timezone, config.app.notify_url)
+        exchange = ExchangeService(self.database, config.app.timezone)
         rates_cache = exchange.load_rates()
         self.last_check_at = now_iso(config.app.timezone)
         dashboard = self._build_dashboard(config, exchange, rates_cache, today)
@@ -87,21 +87,15 @@ class Scheduler:
             except Exception:
                 logger.exception("Reminder task failed")
         # Reminder delivery takes priority; exchange outages cannot block it.
-        for task in (
-            lambda: exchange.sync_supported_currencies(today),
-            lambda: exchange.sync_once_per_day(
-                today, {subscription.currency for subscription in config.subscriptions}
-            ),
-        ):
-            try:
-                task()
-            except Exception:
-                logger.exception("Exchange task failed")
+        try:
+            exchange.sync_once_per_day(today, {item.currency for item in config.subscriptions})
+        except Exception:
+            logger.exception("Exchange task failed")
         return dashboard
 
     def get_dashboard(self, config=None) -> dict:
         config = config or self.database.get_config()
-        exchange = ExchangeService(self.database, config.app.timezone, config.app.notify_url)
+        exchange = ExchangeService(self.database, config.app.timezone)
         return self._build_dashboard(
             config, exchange, exchange.load_rates(), today_in_timezone(config.app.timezone)
         )
