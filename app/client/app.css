@@ -160,6 +160,7 @@ nav a[aria-current] {
 
 .subscription {
   gap: 16px;
+  padding: 20px;
 }
 
 .row {
@@ -419,6 +420,10 @@ label.row {
   }
 
   .summary > .card {
+    padding: 16px;
+  }
+
+  .subscription {
     padding: 16px;
   }
 
