@@ -365,6 +365,29 @@ class BrowserTests(unittest.TestCase):
         event.value.dismiss()
         expect(self.page.get_by_label("时区", exact=True)).to_have_value("UTC")
 
+    def test_initial_login_does_not_prompt_beforeunload(self):
+        self.context.clear_cookies()
+        self.page.goto("/")
+        dialogs = []
+
+        def accept_dialog(dialog):
+            dialogs.append(dialog.type)
+            dialog.accept()
+
+        self.page.on("dialog", accept_dialog)
+        self.page.get_by_label("密码", exact=True).fill(PASSWORD)
+        self.page.get_by_role("button", name="登录", exact=True).click()
+        expect(self.page.get_by_role("heading", name="概览", exact=True)).to_be_visible()
+        self.assertEqual(dialogs, [])
+        self.page.remove_listener("dialog", accept_dialog)
+        self.navigate("订阅")
+        self.page.get_by_label("名称", exact=True).first.fill("未保存的订阅")
+        with self.page.expect_event("dialog") as event:
+            self.page.evaluate("setTimeout(() => location.reload(), 0)")
+        self.assertEqual(event.value.type, "beforeunload")
+        event.value.dismiss()
+        expect(self.page.get_by_label("名称", exact=True).first).to_have_value("未保存的订阅")
+
     def test_login_logout_and_expired_session(self):
         self.page.get_by_role("button", name="退出登录", exact=True).click()
         expect(self.page.get_by_label("密码", exact=True)).to_be_visible()

@@ -209,6 +209,7 @@ document.querySelector("#login-form")?.addEventListener("submit", async (event) 
     await api("/auth/login", "POST", {
       password: login.elements.password.value
     });
+    busy = false;
     location.reload();
   } catch (error) {
     errorBox.textContent = error.message;

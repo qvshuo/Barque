@@ -43,7 +43,7 @@ class WebTests(unittest.TestCase):
 
     def test_server_rendered_pages_and_unauthenticated_isolation(self):
         for path, text in [
-            ("/", "我的订阅"),
+            ("/", "概览"),
             ("/?page=subscriptions", "订阅"),
             ("/?page=settings", "Bark 地址"),
             ("/admin/", "订阅"),
