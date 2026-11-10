@@ -8,7 +8,7 @@
 
 ## 截图
 
-![Barque 订阅](./docs/assets/screenshot.webp)
+![Screenshot](./docs/assets/screenshot.webp)
 
 ## 快速开始
 
@@ -21,7 +21,3 @@ docker compose up -d --build
 ```
 
 打开 `http://localhost:8080`。
-
-界面使用 Jinja2、Basecoat 和原生 JavaScript，无需 Node 或前端构建。已有数据可直接使用。
-
-开发与验证见 [配置文档](docs/configuration.md#开发验证)。
