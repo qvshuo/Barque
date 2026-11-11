@@ -6,9 +6,11 @@ import json
 import re
 import tempfile
 import unittest
+from dataclasses import asdict, replace
 from pathlib import Path
 from unittest.mock import patch
 
+from app.config import AppConfig
 from app.database import Database
 from app.scheduler import Scheduler
 from app.web import STATIC_DIR, create_app
@@ -22,6 +24,7 @@ class WebTests(unittest.TestCase):
         self.scheduler = Scheduler(self.db)
         self.app = create_app(self.db, self.scheduler, initial_password="test-password")
         self.client = self.app.test_client()
+        self.headers = {"X-Barque-Request": "1"}
         self.client.post(
             "/api/auth/login", json={"password": "test-password"}, headers={"X-Barque-Request": "1"}
         )
@@ -35,6 +38,55 @@ class WebTests(unittest.TestCase):
         response = self.client.head(path, **kwargs)
         self.addCleanup(response.close)
         return response
+
+    @patch("app.bark.httpx.get")
+    def test_test_bark_uses_unsaved_input(self, send):
+        send.return_value.json.return_value = {"code": 200}
+        url = "https://example.com/new-key?level=critical&call=1"
+        response = self.client.post(
+            "/api/test-notification",
+            json={"notify_url": url},
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("/new-key/", send.call_args.args[0])
+        self.assertTrue(send.call_args.args[0].endswith("?level=critical&call=1"))
+        self.assertEqual(self.db.get_config().app.notify_url, "")
+        response = self.client.post(
+            "/api/test-notification", json={"notify_url": "invalid"}, headers=self.headers
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_bark_query_settings_and_backup_roundtrip(self):
+        for query in ("", "?level=timeSensitive", "?level=critical", "?level=critical&call=1"):
+            with self.subTest(query=query):
+                url = "https://example.com/key" + query
+                settings = asdict(replace(AppConfig(), notify_url=url))
+                response = self.client.put("/api/settings", json=settings, headers=self.headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json["notify_url"], url)
+                backup = self.client.get("/api/configuration").json
+                self.db.update_settings(asdict(AppConfig()))
+                response = self.client.put("/api/configuration", json=backup, headers=self.headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(self.client.get("/api/settings").json["notify_url"], url)
+                self.assertEqual(self.client.get("/api/configuration").json, backup)
+        for url in (
+            "ftp://example.com/key?level=critical",
+            "https:///key?level=critical",
+            "https://user:password@example.com/key?level=critical",
+            "https://example.com:invalid/key?level=critical",
+            "https://example.com/key?level=critical#fragment",
+            "https://example.com/key?level=critical call=1",
+            "https://example.com/key?value=" + "x" * 2048,
+        ):
+            with self.subTest(url=url):
+                response = self.client.put(
+                    "/api/settings",
+                    json=asdict(replace(AppConfig(), notify_url=url)),
+                    headers=self.headers,
+                )
+                self.assertEqual(response.status_code, 400)
 
     def test_production_assets_match_sources(self):
         from tools.prepare_assets import prepare

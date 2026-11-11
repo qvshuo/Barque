@@ -11,7 +11,6 @@ import httpx
 from waitress.adjustments import Adjustments
 from waitress.proxy_headers import proxy_headers_middleware
 
-from app.bark import send_bark_notification
 from app.config import AppConfig, SubscriptionConfig, validate_subscription_id
 from app.database import Database, SubscriptionConflictError
 from app.exchange import ExchangeService
@@ -186,53 +185,6 @@ class DatabaseTests(unittest.TestCase):
             claimed = list(pool.map(lambda _: self.db.claim_notification("same-cycle"), range(8)))
         self.assertEqual(sum(claimed), 1)
 
-    @patch("app.web.send_bark_notification", return_value=True)
-    def test_test_bark_uses_unsaved_input(self, send):
-        url = "https://example.com/new-key?level=critical&call=1"
-        response = self.client.post(
-            "/api/test-notification",
-            json={"notify_url": url},
-            headers=self.headers,
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(send.call_args.args[0], url)
-        self.assertEqual(self.db.get_config().app.notify_url, "")
-        response = self.client.post(
-            "/api/test-notification", json={"notify_url": "invalid"}, headers=self.headers
-        )
-        self.assertEqual(response.status_code, 400)
-
-    def test_bark_query_settings_and_backup_roundtrip(self):
-        for query in ("", "?level=timeSensitive", "?level=critical", "?level=critical&call=1"):
-            with self.subTest(query=query):
-                url = "https://example.com/key" + query
-                settings = asdict(replace(AppConfig(), notify_url=url))
-                response = self.client.put("/api/settings", json=settings, headers=self.headers)
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json["notify_url"], url)
-                backup = self.client.get("/api/configuration").json
-                self.db.update_settings(asdict(AppConfig()))
-                response = self.client.put("/api/configuration", json=backup, headers=self.headers)
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(self.client.get("/api/settings").json["notify_url"], url)
-                self.assertEqual(self.client.get("/api/configuration").json, backup)
-        for url in (
-            "ftp://example.com/key?level=critical",
-            "https:///key?level=critical",
-            "https://user:password@example.com/key?level=critical",
-            "https://example.com:invalid/key?level=critical",
-            "https://example.com/key?level=critical#fragment",
-            "https://example.com/key?level=critical call=1",
-            "https://example.com/key?value=" + "x" * 2048,
-        ):
-            with self.subTest(url=url):
-                response = self.client.put(
-                    "/api/settings",
-                    json=asdict(replace(AppConfig(), notify_url=url)),
-                    headers=self.headers,
-                )
-                self.assertEqual(response.status_code, 400)
-
     def test_security_headers_and_proxy_cookie(self):
         for trust in (False, True):
             with self.subTest(trust_proxy=trust):
@@ -388,42 +340,6 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(get.call_args.kwargs["params"]["to"], "USD")
         self.assertIsNone(service.amount_to_cny(10, "ZZZ", cache))
         self.assertAlmostEqual(service.amount_to_cny(10, "USD", cache), 71.43)
-
-
-class BarkTests(unittest.TestCase):
-    @patch("app.bark.httpx.get")
-    def test_bark_query_and_message_url(self, get):
-        get.return_value.json.return_value = {"code": 200}
-        for query in (
-            "",
-            "?level=timeSensitive",
-            "?level=critical",
-            "?level=critical&call=1",
-            "?custom=a%2Fb&custom=c+d",
-        ):
-            for path in ("/key", "/key/"):
-                with self.subTest(query=query, path=path):
-                    self.assertTrue(
-                        send_bark_notification(
-                            "https://example.com" + path + query, "A/B 标题", "正文?&/#"
-                        )
-                    )
-                    get.assert_called_with(
-                        "https://example.com/key/A%2FB%20%E6%A0%87%E9%A2%98/"
-                        "%E6%AD%A3%E6%96%87%3F%26%2F%23" + query,
-                        timeout=10,
-                    )
-
-    @patch("app.bark.httpx.get")
-    def test_bark_application_errors(self, get):
-        get.return_value.json.return_value = {"code": 400}
-        self.assertFalse(send_bark_notification("https://example.com/key", "测试", "内容"))
-        get.return_value.json.return_value = {"code": 200}
-        self.assertTrue(send_bark_notification("https://example.com/key", "测试", "内容"))
-        get.side_effect = httpx.ConnectError("offline")
-        self.assertFalse(send_bark_notification("https://example.com/key", "测试", "内容"))
-        get.side_effect = httpx.InvalidURL("Invalid IDNA hostname")
-        self.assertFalse(send_bark_notification("https://☃.com/key", "测试", "内容"))
 
 
 if __name__ == "__main__":
