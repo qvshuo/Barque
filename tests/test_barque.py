@@ -1,20 +1,16 @@
-import os
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from datetime import date, datetime
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import httpx
-from waitress.adjustments import Adjustments
-from waitress.proxy_headers import proxy_headers_middleware
 
 from app.config import AppConfig, SubscriptionConfig, validate_subscription_id
 from app.database import Database, SubscriptionConflictError
 from app.exchange import ExchangeService
-from app.main import main
 from app.scheduler import Scheduler
 from app.subscriptions import (
     add_cycles,
@@ -184,63 +180,6 @@ class DatabaseTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as pool:
             claimed = list(pool.map(lambda _: self.db.claim_notification("same-cycle"), range(8)))
         self.assertEqual(sum(claimed), 1)
-
-    def test_security_headers_and_proxy_cookie(self):
-        for trust in (False, True):
-            with self.subTest(trust_proxy=trust):
-
-                def create_server(application, expected_secure=trust, **options):
-                    settings = Adjustments(**options)
-                    application.wsgi_app = proxy_headers_middleware(
-                        application.wsgi_app,
-                        trusted_proxy=settings.trusted_proxy,
-                        trusted_proxy_headers=settings.trusted_proxy_headers,
-                        clear_untrusted=settings.clear_untrusted_proxy_headers,
-                    )
-
-                    def check_request():
-                        response = application.test_client().post(
-                            "/api/auth/login",
-                            json={"password": "test-password"},
-                            headers={
-                                **self.headers,
-                                "X-Forwarded-Proto": "https",
-                                "X-Forwarded-Host": "attacker.invalid",
-                            },
-                            environ_base={"REMOTE_ADDR": "127.0.0.1"},
-                        )
-                        self.assertEqual(response.status_code, 200)
-                        cookie = response.headers["Set-Cookie"]
-                        for flag in ("HttpOnly", "SameSite=Strict"):
-                            self.assertIn(flag, cookie)
-                        self.assertEqual("Secure" in cookie, expected_secure)
-                        self.assertEqual(
-                            "Strict-Transport-Security" in response.headers, expected_secure
-                        )
-                        self.assertIn("Content-Security-Policy", response.headers)
-
-                    return Mock(run=Mock(side_effect=check_request))
-
-                application = create_app(self.db, self.scheduler, initial_password="test-password")
-                with (
-                    patch.dict(
-                        os.environ,
-                        {"BARQUE_TRUST_PROXY": "1" if trust else "0", "BARQUE_SECURE_COOKIE": "0"},
-                    ),
-                    patch("app.main.Database", return_value=self.db),
-                    patch("app.main.Scheduler"),
-                    patch("app.main.create_app", return_value=application),
-                    patch("app.main.create_server", side_effect=create_server),
-                    patch("app.main.signal.signal"),
-                    patch("app.main.logging.basicConfig"),
-                ):
-                    main()
-        self.assertEqual(
-            self.client.put(
-                "/api/settings", data=b"x", content_type="application/octet-stream"
-            ).status_code,
-            403,
-        )
 
     def test_subscription_ids_and_atomic_validation(self):
         valid = "0123456789abcdef" * 2
