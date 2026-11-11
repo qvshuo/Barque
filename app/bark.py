@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 
@@ -11,8 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 def send_bark_notification(notify_url: str, title: str, body: str) -> bool:
-    url = notify_url.rstrip("/") + f"/{quote(title, safe='')}/{quote(body, safe='')}"
     try:
+        parsed = urlsplit(notify_url)
+        path = parsed.path.rstrip("/") + f"/{quote(title, safe='')}/{quote(body, safe='')}"
+        url = urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
         response = httpx.get(url, timeout=10)
         response.raise_for_status()
         payload = response.json()

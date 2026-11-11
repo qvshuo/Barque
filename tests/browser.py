@@ -264,11 +264,14 @@ class BrowserTests(unittest.TestCase):
         expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute("type", "url")
         expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute("autocomplete", "off")
         expect(page.locator("#reveal")).to_have_count(0)
-        page.get_by_label("Bark 地址", exact=True).fill("https://example.com/unsaved-key")
+        page.get_by_label("Bark 地址", exact=True).fill(
+            "https://example.com/unsaved-key?level=critical&call=1"
+        )
 
         def notification(route):
             self.assertEqual(
-                route.request.post_data_json, {"notify_url": "https://example.com/unsaved-key"}
+                route.request.post_data_json,
+                {"notify_url": "https://example.com/unsaved-key?level=critical&call=1"},
             )
             route.fulfill(json={"message": "测试通知已发送"})
 

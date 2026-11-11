@@ -69,7 +69,6 @@ def validate_settings(data: dict) -> AppConfig:
             or not parsed.hostname
             or parsed.username
             or parsed.password
-            or parsed.query
             or parsed.fragment
             or any(char.isspace() for char in notify_url)
         ):
