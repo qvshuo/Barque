@@ -21,8 +21,7 @@
                  placeholder="e.g. https://api.day.app/your-key">
         </label>
         {{ field('提醒时间','reminder_time',settings.reminder_time,'time',{'required': True}) }}
-        <div class="form-grid">{{ field('提前提醒','remind_before_days',settings.remind_before_days,'number',{'required': True, 'min': '0', 'max': '365', 'step': '1'}) }}
-          {{ field('检查间隔','check_interval_seconds',settings.check_interval_seconds,'number',{'required': True, 'min': '10', 'max': '86400', 'step': '1'}) }}</div>
+        {{ field('提前提醒','remind_before_days',settings.remind_before_days,'number',{'required': True, 'min': '0', 'max': '365', 'step': '1'}) }}
         <button type="button" class="btn" data-variant="outline" id="test-notification">测试通知</button>
       </section>
       <section class="card">

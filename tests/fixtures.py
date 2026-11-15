@@ -6,7 +6,6 @@ def configuration():
         "version": 1,
         "settings": {
             "timezone": "Asia/Shanghai",
-            "check_interval_seconds": 3600,
             "remind_before_days": 7,
             "notify_url": "",
             "reminder_time": "09:00",

@@ -14,7 +14,6 @@ BILLING_CYCLES = {"week", "month", "quarter", "year"}
 @dataclass(frozen=True)
 class AppConfig:
     timezone: str = "Asia/Shanghai"
-    check_interval_seconds: int = 3600
     remind_before_days: int = 7
     notify_url: str = ""
     reminder_time: str = "09:00"
@@ -51,13 +50,9 @@ def validate_settings(data: dict) -> AppConfig:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ValueError("请输入有效的 IANA 时区，例如 Asia/Shanghai") from exc
-    for key, minimum, maximum in (
-        ("check_interval_seconds", 10, 86400),
-        ("remind_before_days", 0, 365),
-    ):
-        value = data.get(key)
-        if type(value) is not int or not minimum <= value <= maximum:
-            raise ValueError(f"{key} 必须是 {minimum} 至 {maximum} 之间的整数")
+    value = data.get("remind_before_days")
+    if type(value) is not int or not 0 <= value <= 365:
+        raise ValueError("remind_before_days 必须是 0 至 365 之间的整数")
     notify_url = data.get("notify_url", "")
     if not isinstance(notify_url, str) or len(notify_url) > 2048:
         raise ValueError("Bark 地址无效")
@@ -86,7 +81,6 @@ def validate_settings(data: dict) -> AppConfig:
         raise ValueError("提醒时间须为有效的 HH:MM 时间")
     return AppConfig(
         timezone,
-        data["check_interval_seconds"],
         data["remind_before_days"],
         notify_url,
         reminder_time,

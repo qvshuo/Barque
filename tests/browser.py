@@ -261,6 +261,7 @@ class BrowserTests(unittest.TestCase):
     def test_bark_unsaved_success_failure_and_settings_save(self):
         self.navigate("设置")
         page = self.page
+        expect(page.get_by_label("检查间隔", exact=True)).to_have_count(0)
         expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute("type", "url")
         expect(page.get_by_label("Bark 地址", exact=True)).to_have_attribute("autocomplete", "off")
         expect(page.locator("#reveal")).to_have_count(0)

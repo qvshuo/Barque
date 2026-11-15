@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -14,6 +15,7 @@ from app.renewals import cycle_key, is_cycle_renewed
 from app.subscriptions import build_dashboard, collect_active_cycle_keys
 
 logger = logging.getLogger(__name__)
+CHECK_INTERVAL_SECONDS = 300
 
 
 def today_in_timezone(timezone_name: str) -> date:
@@ -55,17 +57,30 @@ class Scheduler:
     def run(self) -> None:
         while not self.stop_event.is_set():
             self.wake_event.clear()
-            interval = 3600
+            interval = CHECK_INTERVAL_SECONDS
             try:
                 config = self.database.get_config()
-                interval = config.app.check_interval_seconds
-                self.run_once(config)
+                dashboard = self.run_once(config)
                 now = local_now(config.app.timezone)
                 hour, minute = map(int, config.app.reminder_time.split(":"))
                 target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 if target <= now:
                     target += timedelta(days=1)
                 interval = min(interval, max(1, (target - now).total_seconds()))
+                if config.app.notify_url and now.strftime("%H:%M") >= config.app.reminder_time:
+                    keys = {
+                        cycle_key(
+                            item["subscription_id"], item["payment_date"], item["renewal_date"]
+                        )
+                        for group in dashboard["category_groups"]
+                        for item in group["subscription_items"]
+                        if item["status"] == "expiring"
+                        and item["notify_enabled"]
+                        and item["button_state"]["status_kind"] != "renewed"
+                    }
+                    retry_at = self.database.next_notification_retry_at(keys)
+                    if retry_at is not None:
+                        interval = min(interval, max(1, retry_at - time.time()))
             except Exception:
                 logger.exception("Scheduler cycle failed")
             self.wake_event.wait(interval)
@@ -74,6 +89,10 @@ class Scheduler:
         config = config or self.database.get_config()
         today = today_in_timezone(config.app.timezone)
         exchange = ExchangeService(self.database, config.app.timezone)
+        try:
+            exchange.sync_once_per_day(today, {item.currency for item in config.subscriptions})
+        except Exception:
+            logger.exception("Exchange task failed")
         rates_cache = exchange.load_rates()
         self.last_check_at = now_iso(config.app.timezone)
         dashboard = self._build_dashboard(config, exchange, rates_cache, today)
@@ -86,11 +105,6 @@ class Scheduler:
                 self.send_due_notifications(config, dashboard)
             except Exception:
                 logger.exception("Reminder task failed")
-        # Reminder delivery takes priority; exchange outages cannot block it.
-        try:
-            exchange.sync_once_per_day(today, {item.currency for item in config.subscriptions})
-        except Exception:
-            logger.exception("Exchange task failed")
         return dashboard
 
     def get_dashboard(self, config=None) -> dict:

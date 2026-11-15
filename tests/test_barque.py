@@ -218,6 +218,73 @@ class DatabaseTests(unittest.TestCase):
                     self.db.save_subscription_groups(groups)
                 self.assertEqual(self.db.export_config(), before)
 
+    def test_legacy_interval_is_removed_from_database_and_backup(self):
+        import json
+
+        self.save(asdict(subscription()))
+        backup = self.db.export_config()
+        backup["settings"]["check_interval_seconds"] = 3600
+        with self.db.connect() as connection:
+            connection.execute(
+                "UPDATE settings SET value=? WHERE id=1", (json.dumps(backup["settings"]),)
+            )
+        reopened = Database(Path(self.temp.name))
+        self.assertEqual(len(reopened.get_config().subscriptions), 1)
+        self.assertNotIn("check_interval_seconds", reopened.export_config()["settings"])
+        with reopened.connect() as connection:
+            self.assertNotIn(
+                "check_interval_seconds",
+                json.loads(connection.execute("SELECT value FROM settings").fetchone()[0]),
+            )
+        reopened.import_config(backup)
+        self.assertNotIn("check_interval_seconds", reopened.export_config()["settings"])
+        self.assertEqual(len(reopened.get_config().subscriptions), 1)
+
+    @patch("app.scheduler.today_in_timezone", return_value=date(2024, 2, 22))
+    @patch("app.scheduler.local_now", return_value=datetime(2024, 2, 22, 9))
+    @patch("app.scheduler.send_bark_notification", return_value=True)
+    @patch("app.exchange.httpx.get")
+    def test_first_exchange_sync_is_used_by_reminder(self, get, send, now, today):
+        get.return_value.json.return_value = {"rates": {"USD": 0.2}}
+        self.save(asdict(subscription(currency="USD")))
+        self.db.update_settings(asdict(replace(AppConfig(), notify_url="https://example.com/key")))
+        self.scheduler.run_once()
+        self.scheduler.run_once()
+        self.assertIn("¥50.00", send.call_args.args[2])
+        send.assert_called_once()
+        get.assert_called_once()
+
+    @patch("app.scheduler.today_in_timezone", return_value=date(2024, 2, 22))
+    @patch("app.scheduler.local_now", return_value=datetime(2024, 2, 22, 9))
+    @patch("app.scheduler.send_bark_notification", return_value=False)
+    @patch("app.scheduler.ExchangeService.sync_once_per_day")
+    def test_scheduler_waits_for_eligible_retry(self, rates, send, now, today):
+        self.save(asdict(subscription()))
+        self.db.update_settings(asdict(replace(AppConfig(), notify_url="https://example.com/key")))
+        with patch("app.database.time.time", return_value=1000):
+            self.scheduler.run_once()
+            with (
+                patch.object(
+                    self.scheduler, "run_once", return_value=self.scheduler.get_dashboard()
+                ),
+                patch.object(
+                    self.scheduler.wake_event,
+                    "wait",
+                    side_effect=lambda _: self.scheduler.stop_event.set(),
+                ) as wait,
+            ):
+                self.scheduler.run()
+            wait.assert_called_once_with(60)
+            key = f"{'a' * 32}:2024-01-31:2024-02-29"
+            self.assertIsNone(self.db.next_notification_retry_at({"obsolete"}))
+            self.assertEqual(self.db.next_notification_retry_at({key}), 1060)
+            self.db.finish_notification(key, True)
+            self.assertIsNone(self.db.next_notification_retry_at({key}))
+            self.assertTrue(self.db.claim_notification("pending-cycle"))
+            self.assertEqual(self.db.next_notification_retry_at({"pending-cycle"}), 1300)
+            self.scheduler.wake()
+            self.assertTrue(self.scheduler.wake_event.is_set())
+
     @patch("app.scheduler.today_in_timezone", return_value=date(2024, 2, 22))
     @patch("app.scheduler.local_now", return_value=datetime(2024, 2, 22, 9))
     @patch("app.scheduler.send_bark_notification", side_effect=[False, True])

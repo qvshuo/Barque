@@ -67,12 +67,19 @@ class Database:
     def _initialize(self):
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT 1 FROM settings WHERE id = 1").fetchone()
+            row = connection.execute("SELECT value FROM settings WHERE id = 1").fetchone()
             if row is None:
                 connection.execute(
                     "INSERT INTO settings VALUES (1, ?)", (json.dumps(asdict(AppConfig())),)
                 )
                 connection.execute("PRAGMA user_version=1")
+            else:
+                settings = json.loads(row[0])
+                if "check_interval_seconds" in settings:
+                    del settings["check_interval_seconds"]
+                    connection.execute(
+                        "UPDATE settings SET value = ? WHERE id = 1", (json.dumps(settings),)
+                    )
 
     @staticmethod
     def _read_subscriptions(connection) -> list[SubscriptionConfig]:
@@ -220,7 +227,6 @@ class Database:
         if (
             not {
                 "timezone",
-                "check_interval_seconds",
                 "remind_before_days",
                 "notify_url",
                 "reminder_time",
@@ -337,6 +343,16 @@ class Database:
                 if row[0] not in active_keys and row[0].split(":", 1)[0] in unchanged
             ]
             connection.executemany("DELETE FROM renewals WHERE cycle_key = ?", expired)
+
+    def next_notification_retry_at(self, cycle_keys: set[str]) -> float | None:
+        if not cycle_keys:
+            return None
+        placeholders = ",".join("?" for _ in cycle_keys)
+        with self.connect() as connection:
+            return connection.execute(
+                f"SELECT MIN(retry_at) FROM notification_attempts WHERE status IN ('pending', 'failed') AND cycle_key IN ({placeholders})",
+                tuple(cycle_keys),
+            ).fetchone()[0]
 
     def claim_notification(self, cycle_key: str) -> bool:
         """Lease before I/O. A crash leaves pending work retryable after five minutes."""

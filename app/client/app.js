@@ -103,7 +103,6 @@ function fieldValues(root) {
 function settings() {
   const value = Object.fromEntries(fieldValues(form));
   value.remind_before_days = Number(value.remind_before_days);
-  value.check_interval_seconds = Number(value.check_interval_seconds);
   return value;
 }
 
