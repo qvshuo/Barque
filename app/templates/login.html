@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-  <form id="login-form">
+  <form id="login-form" method="post" action="{{ url_for('login') }}">
     <input class="input"
            id="access-password"
            name="password"
@@ -11,7 +11,8 @@
            required
            maxlength="256"
            autofocus>
-    <p class="error" role="alert" hidden></p>
+    <p class="error" role="alert" {% if not login_error %}hidden{% endif %}>{{ login_error or '' }}{% if login_error %} <a href="/">返回登录</a>{% endif %}</p>
+    {% if not login_error %}<noscript><p class="error">登录需要 JavaScript，请启用后重新加载页面。</p></noscript>{% endif %}
     <button class="btn" type="submit">登录</button>
   </form>
 {% endblock %}

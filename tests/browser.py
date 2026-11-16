@@ -85,6 +85,79 @@ class BrowserTests(unittest.TestCase):
         self.page.get_by_role("button", name="保存", exact=True).click()
         expect(self.page.get_by_text("未保存", exact=True)).to_be_hidden()
 
+    def test_login_without_scripts_keeps_password_out_of_url(self):
+        context = self.browser.new_context(base_url=self.url, java_script_enabled=False)
+        self.addCleanup(context.close)
+        page = context.new_page()
+        page.goto("/")
+        expect(page).to_have_title("登录 · Barque")
+        for selector in ("#login-form", "#reauth-form"):
+            expect(page.locator(selector)).to_have_attribute("method", "post")
+            expect(page.locator(selector)).to_have_attribute("action", "/api/auth/login")
+        page.get_by_label("密码", exact=True).fill(PASSWORD)
+        with page.expect_navigation() as navigation:
+            page.get_by_role("button", name="登录", exact=True).click()
+        self.assertEqual(navigation.value.status, 403)
+        self.assertEqual(page.url, self.url + "/api/auth/login")
+        self.assertNotIn(PASSWORD, page.content())
+        expect(page.locator("#login-form .error")).to_be_visible()
+        self.assertFalse(context.request.get("/api/auth/session").json()["authenticated"])
+        page.get_by_role("link", name="返回登录", exact=True).click()
+        expect(page).to_have_url(self.url + "/")
+        expect(page.get_by_label("密码", exact=True)).to_have_value("")
+
+    def test_editor_keyboard_focus_after_reordering_and_deleting(self):
+        self.navigate("订阅")
+        page = self.page
+        group = page.get_by_role("region", name="分类1", exact=True)
+        down = group.get_by_role("button", name="分类1 分类 下移", exact=True)
+        down.focus()
+        page.keyboard.press("Enter")
+        expect(down).to_be_focused()
+        up = group.get_by_role("button", name="分类1 分类 上移", exact=True)
+        up.focus()
+        page.keyboard.press("Enter")
+        expect(group.get_by_label("分类", exact=True)).to_be_focused()
+        group.get_by_role("button", name="添加订阅", exact=False).click()
+        row = group.get_by_role("group", name="订阅1", exact=True)
+        down = row.get_by_role("button", name="订阅1 下移", exact=True)
+        down.focus()
+        page.keyboard.press("Enter")
+        expect(row.get_by_label("名称", exact=True)).to_be_focused()
+        row.get_by_role("button", name="订阅1 删除", exact=True).focus()
+        page.keyboard.press("Enter")
+        expect(group.get_by_label("名称", exact=True)).to_be_focused()
+        group.get_by_role("button", name="新订阅 删除", exact=True).focus()
+        page.keyboard.press("Enter")
+        expect(group.get_by_role("button", name="添加订阅", exact=False)).to_be_focused()
+        group.get_by_role("button", name="分类1 分类 删除", exact=True).focus()
+        page.keyboard.press("Enter")
+        expect(page.get_by_label("分类", exact=True).first).to_be_focused()
+        while page.locator("#groups > .editor-group").count():
+            page.locator("#groups > .editor-group > .row [data-action=delete]").first.focus()
+            page.keyboard.press("Enter")
+        expect(page.get_by_role("button", name="添加分类", exact=False)).to_be_focused()
+
+    def test_save_announces_success_and_restores_focus_without_stealing_it(self):
+        for name, field, value in (("设置", "时区", "UTC"), ("订阅", "分类", "新分类名")):
+            self.navigate(name)
+            expect(self.page).to_have_title(f"{name} · Barque")
+            self.page.get_by_label(field, exact=True).first.fill(value)
+            self.page.get_by_role("button", name="保存", exact=True).focus()
+            self.page.keyboard.press("Enter")
+            expect(self.page.get_by_role("status")).to_have_text("已保存")
+            expect(self.page.get_by_label(field, exact=True).first).to_be_focused()
+        self.navigate("设置")
+        routes = []
+        self.page.route("**/api/settings", lambda route: routes.append(route))
+        self.page.get_by_label("时区", exact=True).fill("Asia/Shanghai")
+        self.page.get_by_role("button", name="保存", exact=True).click()
+        link = self.page.get_by_role("link", name="概览", exact=True)
+        link.focus()
+        routes[0].fulfill(response=routes[0].fetch())
+        expect(self.page.get_by_role("status")).to_have_text("已保存")
+        expect(link).to_be_focused()
+
     def test_home_categories_and_renewal(self):
         page = self.page
         expect(page.locator("#search, #category, .filters")).to_have_count(0)

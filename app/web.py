@@ -79,6 +79,12 @@ def create_app(
     @app.before_request
     def same_origin_mutations():
         if request.method in {"POST", "PUT", "DELETE", "PATCH"}:
+            if request.endpoint == "login" and not request.is_json:
+                return render_template(
+                    "login.html",
+                    page="login",
+                    login_error="登录需要 JavaScript，请启用后返回登录页面。",
+                ), 403
             # JSON plus a custom header requires a same-origin request or a CORS preflight.
             # No cross-origin requests are enabled by this service.
             if request.headers.get("X-Barque-Request") != "1" or not request.is_json:

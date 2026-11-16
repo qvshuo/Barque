@@ -353,12 +353,15 @@ label.row {
   bottom: 24px;
   right: 24px;
   max-width: calc(100% - 48px);
+  z-index: 30;
+}
+
+#feedback:not(:empty) {
   padding: 16px 20px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--background);
   box-shadow: 0 4px 16px #0002;
-  z-index: 30;
 }
 
 #feedback[data-error] {

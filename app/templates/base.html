@@ -9,7 +9,7 @@
     <meta name="theme-color"
           content="#0a0a0a"
           media="(prefers-color-scheme: dark)">
-    <title>Barque</title>
+    <title>{{ {'home': '概览', 'subscriptions': '订阅', 'settings': '设置', 'login': '登录', 'error': '页面错误'}.get(page, '页面') }} · Barque</title>
     <link rel="icon" href="{{ asset('favicon.ico') }}">
     <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
     <link rel="stylesheet" href="{{ asset('vendor/basecoat-1.1.0.min.css') }}">
@@ -49,7 +49,7 @@
       {% block content %}{% endblock %}
     </main>
     <dialog id="reauth" class="dialog" aria-labelledby="reauth-title">
-      <article><header><h2 id="reauth-title">重新登录</h2></header><section><form id="reauth-form">
+      <article><header><h2 id="reauth-title">重新登录</h2></header><section><form id="reauth-form" method="post" action="{{ url_for('login') }}">
         <input class="input" name="password" type="password" aria-label="重新登录密码" placeholder="密码" autocomplete="current-password" required maxlength="256">
         <p class="error" role="alert" hidden></p>
         <footer><button class="btn" type="submit">登录</button>
@@ -57,7 +57,7 @@
       </form></section></article>
     </dialog>
     <button id="reauth-open" class="btn" data-variant="outline" hidden>重新登录</button>
-    <div id="feedback" role="status" aria-live="polite" hidden></div>
+    <div id="feedback" role="status" aria-live="polite" aria-atomic="true"></div>
     <dialog id="confirm"
             class="dialog"
             role="alertdialog"

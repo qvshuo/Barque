@@ -7,11 +7,10 @@ let saved = "",
 function feedback(message, error = false) {
   const box = document.querySelector("#feedback");
   box.textContent = message;
-  box.hidden = false;
   box.toggleAttribute("data-error", error);
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => {
-    box.hidden = true;
+    box.textContent = "";
   }, 6000);
 }
 
@@ -260,7 +259,8 @@ if (form) {
     busy = true;
     const fieldset = form.querySelector("fieldset"),
       button = form.querySelector(".save"),
-      errorBox = form.querySelector(".error");
+      errorBox = form.querySelector(".error"),
+      focused = document.activeElement;
     const payload =
       page === "subscriptions" ? {
         categories: groups(),
@@ -282,6 +282,7 @@ if (form) {
       fieldset.disabled = false;
       saved = snapshot();
       form.querySelector(".reload").hidden = true;
+      feedback("已保存");
     } catch (error) {
       errorBox.textContent = error.message;
       errorBox.hidden = false;
@@ -291,6 +292,14 @@ if (form) {
       busy = false;
       button.textContent = "保存";
       sync();
+      // Restore lost focus without interrupting navigation or reauthentication.
+      if (form.contains(focused) &&
+          (document.activeElement === document.body || document.activeElement === button) &&
+          !document.querySelector("dialog[open]")) {
+        const target = focused.matches(":enabled") && getComputedStyle(focused).visibility !== "hidden" ?
+          focused : form.querySelector("fieldset input, [data-action=add-group]");
+        target?.focus({ preventScroll: target === focused });
+      }
     }
   });
   form
@@ -355,6 +364,7 @@ if (page === "subscriptions") {
     const button = event.target.closest("[data-action]");
     if (!button || busy) return;
     const action = button.dataset.action;
+    let focusTarget;
     if (action === "add-group" || action === "add-subscription") {
       const fragment = document
         .querySelector(action === "add-group" ? "#group-template" :
@@ -377,14 +387,27 @@ if (page === "subscriptions") {
       root.querySelector("input").focus();
     } else {
       const entry = button.closest(".editor, .editor-group");
-      if (action === "delete") entry.remove();
+      if (action === "delete") {
+        const sibling = entry.nextElementSibling || entry.previousElementSibling;
+        focusTarget = sibling?.querySelector("input") ||
+          (entry.classList.contains("editor") ?
+            entry.closest(".editor-group").querySelector("[data-action=add-subscription]") :
+            form.querySelector("[data-action=add-group]"));
+        entry.remove();
+      }
       if (action === "up" && entry.previousElementSibling)
         entry.previousElementSibling.before(entry);
       if (action === "down" && entry.nextElementSibling) entry.nextElementSibling.after(
         entry);
+      if (action === "up" || action === "down") focusTarget = button;
     }
     orderActions();
     sync();
+    if (focusTarget) {
+      if (focusTarget.disabled) focusTarget = focusTarget.closest(".editor, .editor-group")
+        .querySelector("input");
+      focusTarget.focus();
+    }
   });
 }
 
